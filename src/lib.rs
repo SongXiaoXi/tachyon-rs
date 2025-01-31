@@ -1,4 +1,5 @@
-#![allow(dead_code)]
+#![cfg_attr(feature = "nightly", feature(cfg_version))]
+#![cfg_attr(feature = "nightly", cfg_attr(not(version("1.75.0")), feature(stdsimd)))]
 
 pub mod crypto;
 pub mod string;

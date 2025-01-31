@@ -2,6 +2,7 @@
 name = "hpc"
 version = "1.0.0"
 edition = "2021"
+build = "build.rs"
 
 [profile.release]
 lto = "fat"
@@ -12,9 +13,12 @@ codegen-units = 1
 [profile.dev.package."*"]
 opt-level = 3
 
-[lib]
-crate-type = ["cdylib"]
-bench = false
+[features]
+default = []
+nightly = []
 
 [dependencies]
 cfg-if = "1.0.0"
+
+[build-dependencies]
+rustc_version = "*"
