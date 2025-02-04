@@ -269,16 +269,25 @@ fn inv_cipher(input: &[u8; 16], output: &mut [u8; 16], round_key: &[u8; 176]) {
     }
 }
 
-pub struct AES128Cipher {
+#[derive(Clone)]
+pub struct AES128 {
     round_key: [u8; 176],
 }
 
-impl AES128Cipher {
+impl AES128 {
+    pub const BLOCK_LEN: usize = 16;
+    pub const KEY_LEN: usize = 16;
     #[inline(always)]
     pub fn new(key: &[u8; 16]) -> Self {
         let mut round_key: [u8; 176] = [0; 176];
         key_expansion_128(key, &mut round_key);
         Self { round_key }
+    }
+
+    #[inline(always)]
+    pub fn from_slice(key: &[u8]) -> Self {
+        assert_eq!(key.len(), 16);
+        Self::new(unsafe { &*(key.as_ptr() as *const [u8; 16]) })
     }
 
     #[inline(always)]
@@ -347,7 +356,7 @@ mod tests {
     #[test]
     fn test_aes128() {
         let key = [0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c];
-        let cipher = AES128Cipher::new(&key);
+        let cipher = AES128::new(&key);
 
         let mut data = [0x32, 0x43, 0xf6, 0xa8, 0x88, 0x5a, 0x30, 0x8d, 0x31, 0x31, 0x98, 0xa2, 0xe0, 0x37, 0x07, 0x34];
         cipher.encrypt(&mut data);
