@@ -9,16 +9,47 @@ lto = "fat"
 panic = "abort"
 opt-level = 3
 codegen-units = 1
+debug = false
+debug-assertions = false
+overflow-checks = false
+incremental = false
+rpath = false
 
 [profile.dev.package."*"]
 opt-level = 3
+codegen-units = 1
+debug = false
+debug-assertions = false
+overflow-checks = false
+incremental = false
+
+[profile.bench]
+opt-level = 3
+debug = false
+debug-assertions = false
+overflow-checks = false
+lto = "fat"
+incremental = false
+codegen-units = 1
+rpath = false
 
 [features]
 default = []
 nightly = []
+disable_soft = []
+variable_time_eq = []
 
 [dependencies]
 cfg-if = "1.0.0"
 
 [build-dependencies]
 rustc_version = "*"
+
+[dev-dependencies]
+criterion = { version = "*", default-features = false }
+ring = "*"
+
+[[bench]]
+name = "aes"
+harness = false
+path = "bench/aes.rs"
