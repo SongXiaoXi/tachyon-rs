@@ -1,6 +1,6 @@
-#[cfg(all(target_arch = "arm", target_feature = "neon", target_feature = "aes"))]
+#[cfg(target_arch = "arm")]
 use core::arch::arm::*;
-#[cfg(all(target_arch = "aarch64", target_feature = "neon", target_feature = "aes"))]
+#[cfg(target_arch = "aarch64")]
 use core::arch::aarch64::*;
 
 // The round constant word array.
@@ -200,6 +200,12 @@ impl AES128 {
     }
 
     #[inline(always)]
+    pub fn encrypt_simd(&self, mut block: uint8x16_t) -> uint8x16_t {
+        DO_ENC_BLOCK!(block, self.key_schedule);
+        block
+    }
+
+    #[inline(always)]
     pub fn encrypt_copy(&self, data: &[u8; 16], output: &mut [u8; 16]) {
         let mut block = unsafe { vld1q_u8(data.as_ptr()) };
         DO_ENC_BLOCK!(block, self.key_schedule);
@@ -218,6 +224,12 @@ impl AES128 {
         let mut block = unsafe { vld1q_u8(data.as_ptr()) };
         DO_DEC_BLOCK!(block, self.key_schedule);
         unsafe { vst1q_u8(output.as_mut_ptr(), block) };
+    }
+
+    #[inline(always)]
+    pub fn decrypt_simd(&self, mut block: uint8x16_t) -> uint8x16_t {
+        DO_DEC_BLOCK!(block, self.key_schedule);
+        block
     }
 }
 

@@ -125,6 +125,12 @@ impl AES128 {
     }
 
     #[inline(always)]
+    pub fn encrypt_simd(&self, mut block: __m128i) -> __m128i {
+        DO_ENC_BLOCK!(block, self.key_schedule);
+        block
+    }
+
+    #[inline(always)]
     pub fn decrypt(&self, data: &mut [u8; 16]) {
         let mut block = unsafe { _mm_loadu_si128(data.as_ptr() as *const __m128i) };
         DO_DEC_BLOCK!(block, self.key_schedule);
@@ -136,6 +142,12 @@ impl AES128 {
         let mut block = unsafe { _mm_loadu_si128(data.as_ptr() as *const __m128i) };
         DO_DEC_BLOCK!(block, self.key_schedule);
         unsafe { _mm_storeu_si128(output.as_mut_ptr() as *mut __m128i, block) };
+    }
+
+    #[inline(always)]
+    pub fn decrypt_simd(&self, mut block: __m128i) -> __m128i {
+        DO_DEC_BLOCK!(block, self.key_schedule);
+        block
     }
 }
 
