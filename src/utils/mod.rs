@@ -143,7 +143,6 @@ pub(crate) unsafe fn slice_to_array_at_mut<T, const N: usize>(slice: &mut [T], i
     &mut *(slice.as_mut_ptr().add(index) as *mut [T; N])
 }
 
-#[cfg(test)]
 pub fn human_readable_size(size: usize) -> String {
     let mut cal_size = size;
     let mut unit = 0;
@@ -166,5 +165,5 @@ pub fn human_readable_size(size: usize) -> String {
             "B"
         },
     };
-    format!("{} {}", size, unit)
+    format!("{} {}", cal_size, unit)
 }
