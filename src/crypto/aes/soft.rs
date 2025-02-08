@@ -173,7 +173,7 @@ fn inv_sub_bytes(state: &mut [u8; 16]) {
         i += 1;
     }
 }
-
+#[inline(always)]
 fn inv_shift_rows(state: &mut [u8; 16]) {
     let mut u8tmp: u8 = state[13];
     state[13] = state[9];
