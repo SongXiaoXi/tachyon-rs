@@ -66,4 +66,20 @@ impl AES128 {
             AES128::SW(sw) => sw.decrypt_copy(block, output),
         }
     }
+
+    #[inline(always)]
+    pub fn encrypt_4_blocks(&self, data0: &mut [u8; 16], data1: &mut [u8; 16], data2: &mut [u8; 16], data3: &mut [u8; 16]) {
+        match self {
+            AES128::HW(hw) => hw.encrypt_4_blocks(data0, data1, data2, data3),
+            AES128::SW(sw) => sw.encrypt_4_blocks(data0, data1, data2, data3),
+        }
+    }
+
+    #[inline(always)]
+    pub fn decrypt_4_blocks(&self, data0: &mut [u8; 16], data1: &mut [u8; 16], data2: &mut [u8; 16], data3: &mut [u8; 16]) {
+        match self {
+            AES128::HW(hw) => hw.decrypt_4_blocks(data0, data1, data2, data3),
+            AES128::SW(sw) => sw.decrypt_4_blocks(data0, data1, data2, data3),
+        }
+    }
 }

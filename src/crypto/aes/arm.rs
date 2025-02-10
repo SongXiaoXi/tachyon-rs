@@ -218,6 +218,182 @@ impl AES128 {
         DO_DEC_BLOCK!(block, self.key_schedule);
         unsafe { vst1q_u8(data.as_mut_ptr(), block) };
     }
+    /*
+    #[inline(always)]
+    pub fn encrypt_4_blocks(&self, data0: &mut [u8; 16], data1: &mut [u8; 16], data2: &mut [u8; 16], data3: &mut [u8; 16]) {
+        let mut block0 = unsafe { vld1q_u8(data0.as_ptr()) };
+        let mut block1 = unsafe { vld1q_u8(data1.as_ptr()) };
+        let mut block2 = unsafe { vld1q_u8(data2.as_ptr()) };
+        let mut block3 = unsafe { vld1q_u8(data3.as_ptr()) };
+
+        DO_ENC_BLOCK!(block0, self.key_schedule);
+        DO_ENC_BLOCK!(block1, self.key_schedule);
+        DO_ENC_BLOCK!(block2, self.key_schedule);
+        DO_ENC_BLOCK!(block3, self.key_schedule);
+
+        unsafe {
+            vst1q_u8(data0.as_mut_ptr(), block0);
+            vst1q_u8(data1.as_mut_ptr(), block1);
+            vst1q_u8(data2.as_mut_ptr(), block2);
+            vst1q_u8(data3.as_mut_ptr(), block3);
+        }
+    }*/
+    
+    #[inline(always)]
+    pub fn encrypt_4_blocks(&self, data0: &mut [u8; 16], data1: &mut [u8; 16], data2: &mut [u8; 16], data3: &mut [u8; 16]) {
+        let mut block0 = unsafe { vld1q_u8(data0.as_ptr()) };
+        let mut block1 = unsafe { vld1q_u8(data1.as_ptr()) };
+        let mut block2 = unsafe { vld1q_u8(data2.as_ptr()) };
+        let mut block3 = unsafe { vld1q_u8(data3.as_ptr()) };
+
+        unsafe {
+            block0 = vaeseq_u8(block0, self.key_schedule[0]);
+            block1 = vaeseq_u8(block1, self.key_schedule[0]);
+            block2 = vaeseq_u8(block2, self.key_schedule[0]);
+            block3 = vaeseq_u8(block3, self.key_schedule[0]);
+            block0 = vaeseq_u8(vaesmcq_u8(block0), self.key_schedule[1]);
+            block1 = vaeseq_u8(vaesmcq_u8(block1), self.key_schedule[1]);
+            block2 = vaeseq_u8(vaesmcq_u8(block2), self.key_schedule[1]);
+            block3 = vaeseq_u8(vaesmcq_u8(block3), self.key_schedule[1]);
+            block0 = vaeseq_u8(vaesmcq_u8(block0), self.key_schedule[2]);
+            block1 = vaeseq_u8(vaesmcq_u8(block1), self.key_schedule[2]);
+            block2 = vaeseq_u8(vaesmcq_u8(block2), self.key_schedule[2]);
+            block3 = vaeseq_u8(vaesmcq_u8(block3), self.key_schedule[2]);
+            block0 = vaeseq_u8(vaesmcq_u8(block0), self.key_schedule[3]);
+            block1 = vaeseq_u8(vaesmcq_u8(block1), self.key_schedule[3]);
+            block2 = vaeseq_u8(vaesmcq_u8(block2), self.key_schedule[3]);
+            block3 = vaeseq_u8(vaesmcq_u8(block3), self.key_schedule[3]);
+            block0 = vaeseq_u8(vaesmcq_u8(block0), self.key_schedule[4]);
+            block1 = vaeseq_u8(vaesmcq_u8(block1), self.key_schedule[4]);
+            block2 = vaeseq_u8(vaesmcq_u8(block2), self.key_schedule[4]);
+            block3 = vaeseq_u8(vaesmcq_u8(block3), self.key_schedule[4]);
+            block0 = vaeseq_u8(vaesmcq_u8(block0), self.key_schedule[5]);
+            block1 = vaeseq_u8(vaesmcq_u8(block1), self.key_schedule[5]);
+            block2 = vaeseq_u8(vaesmcq_u8(block2), self.key_schedule[5]);
+            block3 = vaeseq_u8(vaesmcq_u8(block3), self.key_schedule[5]);
+            block0 = vaeseq_u8(vaesmcq_u8(block0), self.key_schedule[6]);
+            block1 = vaeseq_u8(vaesmcq_u8(block1), self.key_schedule[6]);
+            block2 = vaeseq_u8(vaesmcq_u8(block2), self.key_schedule[6]);
+            block3 = vaeseq_u8(vaesmcq_u8(block3), self.key_schedule[6]);
+            block0 = vaeseq_u8(vaesmcq_u8(block0), self.key_schedule[7]);
+            block1 = vaeseq_u8(vaesmcq_u8(block1), self.key_schedule[7]);
+            block2 = vaeseq_u8(vaesmcq_u8(block2), self.key_schedule[7]);
+            block3 = vaeseq_u8(vaesmcq_u8(block3), self.key_schedule[7]);
+            block0 = vaeseq_u8(vaesmcq_u8(block0), self.key_schedule[8]);
+            block1 = vaeseq_u8(vaesmcq_u8(block1), self.key_schedule[8]);
+            block2 = vaeseq_u8(vaesmcq_u8(block2), self.key_schedule[8]);
+            block3 = vaeseq_u8(vaesmcq_u8(block3), self.key_schedule[8]);
+            block0 = vaeseq_u8(vaesmcq_u8(block0), self.key_schedule[9]);
+            block1 = vaeseq_u8(vaesmcq_u8(block1), self.key_schedule[9]);
+            block2 = vaeseq_u8(vaesmcq_u8(block2), self.key_schedule[9]);
+            block3 = vaeseq_u8(vaesmcq_u8(block3), self.key_schedule[9]);
+            block0 = veorq_u8(block0, self.key_schedule[10]);
+            block1 = veorq_u8(block1, self.key_schedule[10]);
+            block2 = veorq_u8(block2, self.key_schedule[10]);
+            block3 = veorq_u8(block3, self.key_schedule[10]);
+
+            vst1q_u8(data0.as_mut_ptr(), block0);
+            vst1q_u8(data1.as_mut_ptr(), block1);
+            vst1q_u8(data2.as_mut_ptr(), block2);
+            vst1q_u8(data3.as_mut_ptr(), block3);
+        }
+    }
+
+    #[inline(always)]
+    pub fn decrypt_4_blocks(&self, data0: &mut [u8; 16], data1: &mut [u8; 16], data2: &mut [u8; 16], data3: &mut [u8; 16]) {
+        let mut block0 = unsafe { vld1q_u8(data0.as_ptr()) };
+        let mut block1 = unsafe { vld1q_u8(data1.as_ptr()) };
+        let mut block2 = unsafe { vld1q_u8(data2.as_ptr()) };
+        let mut block3 = unsafe { vld1q_u8(data3.as_ptr()) };
+
+        unsafe {
+            block0 = vaesdq_u8(block0, self.key_schedule[10]);
+            block1 = vaesdq_u8(block1, self.key_schedule[10]);
+            block2 = vaesdq_u8(block2, self.key_schedule[10]);
+            block3 = vaesdq_u8(block3, self.key_schedule[10]);
+            block0 = vaesimcq_u8(block0);
+            block1 = vaesimcq_u8(block1);
+            block2 = vaesimcq_u8(block2);
+            block3 = vaesimcq_u8(block3);
+            block0 = vaesdq_u8(block0, self.key_schedule[11]);
+            block1 = vaesdq_u8(block1, self.key_schedule[11]);
+            block2 = vaesdq_u8(block2, self.key_schedule[11]);
+            block3 = vaesdq_u8(block3, self.key_schedule[11]);
+            block0 = vaesimcq_u8(block0);
+            block1 = vaesimcq_u8(block1);
+            block2 = vaesimcq_u8(block2);
+            block3 = vaesimcq_u8(block3);
+            block0 = vaesdq_u8(block0, self.key_schedule[12]);
+            block1 = vaesdq_u8(block1, self.key_schedule[12]);
+            block2 = vaesdq_u8(block2, self.key_schedule[12]);
+            block3 = vaesdq_u8(block3, self.key_schedule[12]);
+            block0 = vaesimcq_u8(block0);
+            block1 = vaesimcq_u8(block1);
+            block2 = vaesimcq_u8(block2);
+            block3 = vaesimcq_u8(block3);
+            block0 = vaesdq_u8(block0, self.key_schedule[13]);
+            block1 = vaesdq_u8(block1, self.key_schedule[13]);
+            block2 = vaesdq_u8(block2, self.key_schedule[13]);
+            block3 = vaesdq_u8(block3, self.key_schedule[13]);
+            block0 = vaesimcq_u8(block0);
+            block1 = vaesimcq_u8(block1);
+            block2 = vaesimcq_u8(block2);
+            block3 = vaesimcq_u8(block3);
+            block0 = vaesdq_u8(block0, self.key_schedule[14]);
+            block1 = vaesdq_u8(block1, self.key_schedule[14]);
+            block2 = vaesdq_u8(block2, self.key_schedule[14]);
+            block3 = vaesdq_u8(block3, self.key_schedule[14]);
+            block0 = vaesimcq_u8(block0);
+            block1 = vaesimcq_u8(block1);
+            block2 = vaesimcq_u8(block2);
+            block3 = vaesimcq_u8(block3);
+            block0 = vaesdq_u8(block0, self.key_schedule[15]);
+            block1 = vaesdq_u8(block1, self.key_schedule[15]);
+            block2 = vaesdq_u8(block2, self.key_schedule[15]);
+            block3 = vaesdq_u8(block3, self.key_schedule[15]);
+            block0 = vaesimcq_u8(block0);
+            block1 = vaesimcq_u8(block1);
+            block2 = vaesimcq_u8(block2);
+            block3 = vaesimcq_u8(block3);
+            block0 = vaesdq_u8(block0, self.key_schedule[16]);
+            block1 = vaesdq_u8(block1, self.key_schedule[16]);
+            block2 = vaesdq_u8(block2, self.key_schedule[16]);
+            block3 = vaesdq_u8(block3, self.key_schedule[16]);
+            block0 = vaesimcq_u8(block0);
+            block1 = vaesimcq_u8(block1);
+            block2 = vaesimcq_u8(block2);
+            block3 = vaesimcq_u8(block3);
+            block0 = vaesdq_u8(block0, self.key_schedule[17]);
+            block1 = vaesdq_u8(block1, self.key_schedule[17]);
+            block2 = vaesdq_u8(block2, self.key_schedule[17]);
+            block3 = vaesdq_u8(block3, self.key_schedule[17]);
+            block0 = vaesimcq_u8(block0);
+            block1 = vaesimcq_u8(block1);
+            block2 = vaesimcq_u8(block2);
+            block3 = vaesimcq_u8(block3);
+            block0 = vaesdq_u8(block0, self.key_schedule[18]);
+            block1 = vaesdq_u8(block1, self.key_schedule[18]);
+            block2 = vaesdq_u8(block2, self.key_schedule[18]);
+            block3 = vaesdq_u8(block3, self.key_schedule[18]);
+            block0 = vaesimcq_u8(block0);
+            block1 = vaesimcq_u8(block1);
+            block2 = vaesimcq_u8(block2);
+            block3 = vaesimcq_u8(block3);
+            block0 = vaesdq_u8(block0, self.key_schedule[19]);
+            block1 = vaesdq_u8(block1, self.key_schedule[19]);
+            block2 = vaesdq_u8(block2, self.key_schedule[19]);
+            block3 = vaesdq_u8(block3, self.key_schedule[19]);
+            block0 = veorq_u8(block0, self.key_schedule[0]);
+            block1 = veorq_u8(block1, self.key_schedule[0]);
+            block2 = veorq_u8(block2, self.key_schedule[0]);
+            block3 = veorq_u8(block3, self.key_schedule[0]);
+
+            vst1q_u8(data0.as_mut_ptr(), block0);
+            vst1q_u8(data1.as_mut_ptr(), block1);
+            vst1q_u8(data2.as_mut_ptr(), block2);
+            vst1q_u8(data3.as_mut_ptr(), block3);
+        }
+    }
 
     #[inline(always)]
     pub fn decrypt_copy(&self, data: &[u8; 16], output: &mut [u8; 16]) {

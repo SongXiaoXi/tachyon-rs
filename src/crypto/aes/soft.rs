@@ -1,4 +1,3 @@
-
 #[allow(non_upper_case_globals)]
 const Nb: usize = 4;
 #[allow(non_upper_case_globals)]
@@ -308,6 +307,22 @@ impl AES128 {
     #[inline(always)]
     pub fn decrypt_copy(&self, data: &[u8; 16], output: &mut [u8; 16]) {
         inv_cipher(data, output, &self.round_key);
+    }
+
+    #[inline(always)]
+    pub fn encrypt_4_blocks(&self, data0: &mut [u8; 16], data1: &mut [u8; 16], data2: &mut [u8; 16], data3: &mut [u8; 16]) {
+        cipher_inplace(data0, &self.round_key);
+        cipher_inplace(data1, &self.round_key);
+        cipher_inplace(data2, &self.round_key);
+        cipher_inplace(data3, &self.round_key);
+    }
+
+    #[inline(always)]
+    pub fn decrypt_4_blocks(&self, data0: &mut [u8; 16], data1: &mut [u8; 16], data2: &mut [u8; 16], data3: &mut [u8; 16]) {
+        inv_cipher_inplace(data0, &self.round_key);
+        inv_cipher_inplace(data1, &self.round_key);
+        inv_cipher_inplace(data2, &self.round_key);
+        inv_cipher_inplace(data3, &self.round_key);
     }
 }
 

@@ -149,6 +149,42 @@ impl AES128 {
         DO_DEC_BLOCK!(block, self.key_schedule);
         block
     }
+
+    #[inline(always)]
+    pub fn encrypt_4_blocks(&self, data0: &mut [u8; 16], data1: &mut [u8; 16], data2: &mut [u8; 16], data3: &mut [u8; 16]) {
+        let mut block0 = unsafe { _mm_loadu_si128(data0.as_ptr() as *const __m128i) };
+        let mut block1 = unsafe { _mm_loadu_si128(data1.as_ptr() as *const __m128i) };
+        let mut block2 = unsafe { _mm_loadu_si128(data2.as_ptr() as *const __m128i) };
+        let mut block3 = unsafe { _mm_loadu_si128(data3.as_ptr() as *const __m128i) };
+        DO_ENC_BLOCK!(block0, self.key_schedule);
+        DO_ENC_BLOCK!(block1, self.key_schedule);
+        DO_ENC_BLOCK!(block2, self.key_schedule);
+        DO_ENC_BLOCK!(block3, self.key_schedule);
+        unsafe {
+            _mm_storeu_si128(data0.as_mut_ptr() as *mut __m128i, block0);
+            _mm_storeu_si128(data1.as_mut_ptr() as *mut __m128i, block1);
+            _mm_storeu_si128(data2.as_mut_ptr() as *mut __m128i, block2);
+            _mm_storeu_si128(data3.as_mut_ptr() as *mut __m128i, block3);
+        }
+    }
+
+    #[inline(always)]
+    pub fn decrypt_4_blocks(&self, data0: &mut [u8; 16], data1: &mut [u8; 16], data2: &mut [u8; 16], data3: &mut [u8; 16]) {
+        let mut block0 = unsafe { _mm_loadu_si128(data0.as_ptr() as *const __m128i) };
+        let mut block1 = unsafe { _mm_loadu_si128(data1.as_ptr() as *const __m128i) };
+        let mut block2 = unsafe { _mm_loadu_si128(data2.as_ptr() as *const __m128i) };
+        let mut block3 = unsafe { _mm_loadu_si128(data3.as_ptr() as *const __m128i) };
+        DO_DEC_BLOCK!(block0, self.key_schedule);
+        DO_DEC_BLOCK!(block1, self.key_schedule);
+        DO_DEC_BLOCK!(block2, self.key_schedule);
+        DO_DEC_BLOCK!(block3, self.key_schedule);
+        unsafe {
+            _mm_storeu_si128(data0.as_mut_ptr() as *mut __m128i, block0);
+            _mm_storeu_si128(data1.as_mut_ptr() as *mut __m128i, block1);
+            _mm_storeu_si128(data2.as_mut_ptr() as *mut __m128i, block2);
+            _mm_storeu_si128(data3.as_mut_ptr() as *mut __m128i, block3);
+        }
+    }
 }
 
 #[cfg(test)]
