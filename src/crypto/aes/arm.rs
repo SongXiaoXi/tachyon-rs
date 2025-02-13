@@ -2,6 +2,7 @@
 use core::arch::arm::*;
 #[cfg(target_arch = "aarch64")]
 use core::arch::aarch64::*;
+use unsafe_target_feature::unsafe_target_feature;
 
 // The round constant word array.
 const RCON: [u32; 10] = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36];
@@ -27,7 +28,7 @@ const FORWARD_S_BOX: [u8; 256] = [
     0x8c, 0xa1, 0x89, 0x0d, 0xbf, 0xe6, 0x42, 0x68, 0x41, 0x99, 0x2d, 0x0f, 0xb0, 0x54, 0xbb, 0x16,
 ];
 
-#[inline]
+#[inline(always)]
 fn sub_word(x: u32) -> u32 {
     // SubWord([b0, b1, b2, b3]) = [ SubByte(b0), SubByte(b1), SubByte(b2), SubByte(b3) ]
     let mut bytes = x.to_le_bytes();
@@ -38,6 +39,7 @@ fn sub_word(x: u32) -> u32 {
     u32::from_le_bytes(bytes)
 }
 
+#[unsafe_target_feature("aes")]
 #[inline(always)]
 fn load_key_128(k: &mut [uint8x16_t; 20], key: &[u8; 16]) {
     use std::mem::transmute;
@@ -176,6 +178,7 @@ pub struct AES128 {
     key_schedule: [uint8x16_t; 20],
 }
 
+#[unsafe_target_feature("aes")]
 impl AES128 {
     pub const BLOCK_LEN: usize = 16;
     pub const KEY_LEN: usize = 16;
@@ -412,9 +415,16 @@ impl AES128 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_arch = "arm")]
+    use std::arch::is_arm_feature_detected as is_target_feature_detected;
+    #[cfg(target_arch = "aarch64")]
+    use std::arch::is_aarch64_feature_detected as is_target_feature_detected;
 
     #[test]
     fn test_aes128() {
+        if !is_target_feature_detected!("aes") {
+            return;
+        }
         let key = [0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c];
         let cipher = AES128::new(key);
 

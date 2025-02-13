@@ -3,6 +3,8 @@ use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 
+use unsafe_target_feature::unsafe_target_feature;
+
 #[inline(always)]
 fn key_expansion_128(mut key: __m128i, keygened: __m128i) -> __m128i {
     unsafe {
@@ -17,6 +19,7 @@ fn key_expansion_128(mut key: __m128i, keygened: __m128i) -> __m128i {
     }
 }
 
+#[unsafe_target_feature("aes")]
 #[inline(always)]
 fn key_exp_128<const RCON: i32>(key: __m128i) -> __m128i {
     unsafe {
@@ -25,6 +28,7 @@ fn key_exp_128<const RCON: i32>(key: __m128i) -> __m128i {
     }
 }
 
+#[unsafe_target_feature("aes")]
 #[inline(always)]
 fn load_key_128(key_schedule: &mut [__m128i; 20], key: &[u8; 16]) {
     unsafe {
@@ -94,6 +98,7 @@ pub struct AES128 {
     key_schedule: [__m128i; 20],
 }
 
+#[unsafe_target_feature("aes")]
 impl AES128 {
     pub const BLOCK_LEN: usize = 16;
     pub const KEY_LEN: usize = 16;
@@ -186,6 +191,11 @@ impl AES128 {
         }
     }
 }
+
+struct AES128Vaes {
+    key_schedule: [__m128i; 20],
+}
+
 
 #[cfg(test)]
 mod tests {
