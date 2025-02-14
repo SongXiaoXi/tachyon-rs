@@ -167,3 +167,16 @@ pub fn human_readable_size(size: usize) -> String {
     };
     format!("{} {}", cal_size, unit)
 }
+
+#[inline(always)]
+pub const unsafe fn unreachable() -> ! {
+    unreachable!()
+}
+
+#[inline(always)]
+pub const unsafe fn assume(b: bool) {
+    if !b {
+        // SAFETY: the caller must guarantee the argument is never `false`
+        unsafe { unreachable() }
+    }
+}
