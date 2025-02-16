@@ -178,7 +178,7 @@ pub struct AES128 {
     key_schedule: [uint8x16_t; 20],
 }
 
-#[unsafe_target_feature("aes")]
+#[unsafe_target_feature("aes,neon")]
 impl AES128 {
     pub const BLOCK_LEN: usize = 16;
     pub const KEY_LEN: usize = 16;

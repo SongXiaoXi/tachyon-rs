@@ -1,3 +1,6 @@
+#[path = "fixslicing64.rs"]
+pub(crate) mod fixslicing;
+
 #[allow(non_upper_case_globals)]
 const Nb: usize = 4;
 #[allow(non_upper_case_globals)]
@@ -268,6 +271,7 @@ fn inv_cipher(input: &[u8; 16], output: &mut [u8; 16], round_key: &[u8; 176]) {
     }
 }
 
+/*
 #[derive(Clone)]
 pub struct AES128 {
     round_key: [u8; 176],
@@ -326,6 +330,8 @@ impl AES128 {
     }
 }
 
+*/
+
 const SBOX: [u8; 256] = [
     0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,
     0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0, 0xad, 0xd4, 0xa2, 0xaf, 0x9c, 0xa4, 0x72, 0xc0,
@@ -363,6 +369,78 @@ const RSBOX: [u8; 256] = [
     0xa0, 0xe0, 0x3b, 0x4d, 0xae, 0x2a, 0xf5, 0xb0, 0xc8, 0xeb, 0xbb, 0x3c, 0x83, 0x53, 0x99, 0x61,
     0x17, 0x2b, 0x04, 0x7e, 0xba, 0x77, 0xd6, 0x26, 0xe1, 0x69, 0x14, 0x63, 0x55, 0x21, 0x0c, 0x7d
 ];
+
+#[derive(Clone)]
+pub struct AES128 {
+    rkeys: fixslicing::FixsliceKeys128,
+    round_key: [u8; 176],
+}
+
+impl AES128 {
+    pub const BLOCK_LEN: usize = 16;
+    pub const KEY_LEN: usize = 16;
+
+    #[inline(always)]
+    pub fn new(key: [u8; 16]) -> Self {
+        let rkeys = fixslicing::aes128_key_schedule(&key);
+        let mut round_key: [u8; 176] = [0; 176];
+        key_expansion_128(&key, &mut round_key);
+        Self { rkeys, round_key }
+    }
+
+    #[inline(always)]
+    pub fn from_slice(key: &[u8]) -> Self {
+        assert_eq!(key.len(), 16);
+        Self::new(unsafe { *crate::utils::slice_to_array(key) })
+    }
+
+    #[inline(always)]
+    pub fn encrypt(&self, data: &mut [u8; 16]) {
+        cipher_inplace(data, &self.round_key);
+    }
+
+    #[inline(always)]
+    pub fn encrypt_copy(&self, data: &[u8; 16], output: &mut [u8; 16]) {
+        cipher(data, output, &self.round_key);
+    }
+
+    #[inline(always)]
+    pub fn decrypt(&self, data: &mut [u8; 16]) {
+        inv_cipher_inplace(data, &self.round_key);
+    }
+
+    #[inline(always)]
+    pub fn decrypt_copy(&self, data: &[u8; 16], output: &mut [u8; 16]) {
+        inv_cipher(data, output, &self.round_key);
+    }
+    #[inline(always)]
+    pub fn encrypt_4_blocks(&self, data0: &mut [u8; 16], data1: &mut [u8; 16], data2: &mut [u8; 16], data3: &mut [u8; 16]) {
+        let mut blocks = [
+            *data0, *data1, *data2, *data3
+        ];
+        blocks = fixslicing::aes128_encrypt(&self.rkeys, &blocks);
+
+        *data0 = blocks[0];
+        *data1 = blocks[1];
+        *data2 = blocks[2];
+        *data3 = blocks[3];
+    }
+
+    #[inline(always)]
+    pub fn decrypt_4_blocks(&self, data0: &mut [u8; 16], data1: &mut [u8; 16], data2: &mut [u8; 16], data3: &mut [u8; 16]) {
+        let mut blocks = [
+            *data0, *data1, *data2, *data3
+        ];
+        blocks = fixslicing::aes128_decrypt(&self.rkeys, &blocks);
+
+        *data0 = blocks[0];
+        *data1 = blocks[1];
+        *data2 = blocks[2];
+        *data3 = blocks[3];
+    }
+
+    
+}
 
 #[cfg(test)]
 mod tests {
