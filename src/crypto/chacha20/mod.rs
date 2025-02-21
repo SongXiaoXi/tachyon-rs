@@ -95,16 +95,42 @@ impl Chacha20 {
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         if len_remain >= Self::BLOCK_LEN * PARALLEL_BLOCKS {
             unsafe {
+                /*
                 let mut initial_state_sse = [
                     _mm_loadu_si128(initial_state.as_ptr() as _),
                     _mm_loadu_si128((initial_state.as_ptr() as *const u8).add(16) as _),
                     _mm_loadu_si128((initial_state.as_ptr() as *const u8).add(32) as _),
                     _mm_loadu_si128((initial_state.as_ptr() as *const u8).add(48) as _),
                 ];
+                */
+
+                let mut state = [
+                    _mm_set1_epi32(initial_state[0] as _),
+                    _mm_set1_epi32(initial_state[1] as _),
+                    _mm_set1_epi32(initial_state[2] as _),
+                    _mm_set1_epi32(initial_state[3] as _),
+                    _mm_set1_epi32(initial_state[4] as _),
+                    _mm_set1_epi32(initial_state[5] as _),
+                    _mm_set1_epi32(initial_state[6] as _),
+                    _mm_set1_epi32(initial_state[7] as _),
+                    _mm_set1_epi32(initial_state[8] as _),
+                    _mm_set1_epi32(initial_state[9] as _),
+                    _mm_set1_epi32(initial_state[10] as _),
+                    _mm_set1_epi32(initial_state[11] as _),
+                    _mm_set1_epi32(initial_state[12] as _),
+                    _mm_set1_epi32(initial_state[13] as _),
+                    _mm_set1_epi32(initial_state[14] as _),
+                    _mm_set1_epi32(initial_state[15] as _),
+                ];
+                state[12] = _mm_add_epi32(state[12], _mm_set_epi32(3, 2, 1, 0));
                 while len_remain >= Self::BLOCK_LEN * PARALLEL_BLOCKS {
-                    _mm_prefetch(plaintext_or_ciphertext.as_ptr().add(start + Self::BLOCK_LEN * PARALLEL_BLOCKS) as _, _MM_HINT_T0);
+                    // _mm_prefetch(plaintext_or_ciphertext.as_ptr().add(start + Self::BLOCK_LEN * PARALLEL_BLOCKS) as _, _MM_HINT_T0);
+                    /*
                     let res = rounds(&initial_state_sse);
-                    initial_state_sse[3] = _mm_add_epi32(initial_state_sse[3], _mm_set_epi32(0, 0, 0, 4));
+                    initial_state_sse[3] = _mm_add_epi32(initial_state_sse[3], _mm_set_epi32(0, 0, 0, PARALLEL_BLOCKS as _));
+                    */
+                    let res = rounds_vertical(&state);
+                    state[12] = _mm_add_epi32(state[12], _mm_set1_epi32(PARALLEL_BLOCKS as _));
                     
                     for block in 0..4 {
                         let block = &res[block];
@@ -122,44 +148,35 @@ impl Chacha20 {
 
                     len_remain -= Self::BLOCK_LEN * 4;
                 }
-                _mm_storeu_si128(initial_state.as_mut_ptr() as _, initial_state_sse[0]);
-                _mm_storeu_si128((initial_state.as_mut_ptr() as *mut u8).add(16) as _, initial_state_sse[1]);
-                _mm_storeu_si128((initial_state.as_mut_ptr() as *mut u8).add(32) as _, initial_state_sse[2]);
-                _mm_storeu_si128((initial_state.as_mut_ptr() as *mut u8).add(48) as _, initial_state_sse[3]);
+                initial_state[12] += (start / Self::BLOCK_LEN) as u32;
             }
         }
-        #[cfg(all(any(target_arch = "aarch64", target_arch = "arm"), target_feature = "neon"))]
+        #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
         if len_remain >= Self::BLOCK_LEN * PARALLEL_BLOCKS {
             unsafe {
-                let mut initial_state_neon = [
-                    vld1q_u32(initial_state.as_ptr() as _),
-                    vld1q_u32((initial_state.as_ptr() as *const u8).add(16) as _),
-                    vld1q_u32((initial_state.as_ptr() as *const u8).add(32) as _),
-                    vld1q_u32((initial_state.as_ptr() as *const u8).add(48) as _),
+                let mut state = [
+                    vdupq_n_u32(initial_state[0]),
+                    vdupq_n_u32(initial_state[1]),
+                    vdupq_n_u32(initial_state[2]),
+                    vdupq_n_u32(initial_state[3]),
+                    vdupq_n_u32(initial_state[4]),
+                    vdupq_n_u32(initial_state[5]),
+                    vdupq_n_u32(initial_state[6]),
+                    vdupq_n_u32(initial_state[7]),
+                    vdupq_n_u32(initial_state[8]),
+                    vdupq_n_u32(initial_state[9]),
+                    vdupq_n_u32(initial_state[10]),
+                    vdupq_n_u32(initial_state[11]),
+                    vdupq_n_u32(initial_state[12]),
+                    vdupq_n_u32(initial_state[13]),
+                    vdupq_n_u32(initial_state[14]),
+                    vdupq_n_u32(initial_state[15]),
                 ];
-                
+                state[12] = vaddq_u32(state[12], vld1q_u32([0, 1, 2, 3].as_ptr()));
+
                 while len_remain >= Self::BLOCK_LEN * PARALLEL_BLOCKS {
-                    // let mut text: [[uint32x4_t; 4]; PARALLEL_BLOCKS] = [[vdupq_n_u32(0); 4]; PARALLEL_BLOCKS];
-                    // {
-                    //     let mut start = start;
-                    //     for i in 0..PARALLEL_BLOCKS {
-                    //         text[i][0] = vld1q_u32(plaintext_or_ciphertext.as_ptr().add(start) as _);
-                    //         text[i][1] = vld1q_u32(plaintext_or_ciphertext.as_ptr().add(start + 16) as _);
-                    //         text[i][2] = vld1q_u32(plaintext_or_ciphertext.as_ptr().add(start + 32) as _);
-                    //         text[i][3] = vld1q_u32(plaintext_or_ciphertext.as_ptr().add(start + 48) as _);
-                    //         start += Self::BLOCK_LEN;
-                    //     }
-                    // }
-                    // prefetch plaintext_or_ciphertext.as_ptr() + start
-                    // use std::arch::asm;
-                    // asm!(
-                    //     "prfm pldl1strm, [{0}, {1}]",
-                    //     in(reg) plaintext_or_ciphertext.as_ptr(),
-                    //     in(reg) start,
-                    // );
-                    
-                    let res = rounds(&initial_state_neon);
-                    initial_state_neon[3] = vaddq_u32(initial_state_neon[3], vld1q_u32([4, 0, 0, 0].as_ptr()));
+                    let res = rounds_vertical(&state);
+                    state[12] = vaddq_u32(state[12], vdupq_n_u32(PARALLEL_BLOCKS as u32));
 
                     for i in 0..PARALLEL_BLOCKS {
                         let block = &res[i];
@@ -173,10 +190,6 @@ impl Chacha20 {
                         block02 = veorq_u32(block02, block[2]);
                         block03 = veorq_u32(block03, block[3]);
 
-                        // black_box(block00);
-                        // black_box(block01);
-                        // black_box(block02);
-                        // black_box(block03);
                         vst1q_u32(plaintext_or_ciphertext.as_mut_ptr().add(start) as _, block00);
                         vst1q_u32(plaintext_or_ciphertext.as_mut_ptr().add(start + 16) as _, block01);
                         vst1q_u32(plaintext_or_ciphertext.as_mut_ptr().add(start + 32) as _, block02);
@@ -186,10 +199,47 @@ impl Chacha20 {
 
                     len_remain -= Self::BLOCK_LEN * PARALLEL_BLOCKS;
                 }
-                vst1q_u32(initial_state.as_mut_ptr() as _, initial_state_neon[0]);
-                vst1q_u32((initial_state.as_mut_ptr() as *mut u8).add(16) as _, initial_state_neon[1]);
-                vst1q_u32((initial_state.as_mut_ptr() as *mut u8).add(32) as _, initial_state_neon[2]);
-                vst1q_u32((initial_state.as_mut_ptr() as *mut u8).add(48) as _, initial_state_neon[3]);
+                initial_state[12] += (start / Self::BLOCK_LEN) as u32;
+            }
+        }
+
+        #[cfg(all(target_arch = "arm", target_feature = "neon"))]
+        if len_remain >= Self::BLOCK_LEN * PARALLEL_BLOCKS {
+            unsafe {
+                let mut initial_state_neon = [
+                    vld1q_u32(initial_state.as_ptr() as _),
+                    vld1q_u32((initial_state.as_ptr() as *const u8).add(16) as _),
+                    vld1q_u32((initial_state.as_ptr() as *const u8).add(32) as _),
+                    vld1q_u32((initial_state.as_ptr() as *const u8).add(48) as _),
+                ];
+                
+                while len_remain >= Self::BLOCK_LEN * PARALLEL_BLOCKS {
+                    
+                    let res = rounds(&initial_state_neon);
+                    initial_state_neon[3] = vaddq_u32(initial_state_neon[3], vld1q_u32([PARALLEL_BLOCKS as u32, 0, 0, 0].as_ptr()));
+
+                    for i in 0..PARALLEL_BLOCKS {
+                        let block = &res[i];
+                        let mut block00 = vld1q_u32(plaintext_or_ciphertext.as_ptr().add(start) as _);
+                        let mut block01 = vld1q_u32(plaintext_or_ciphertext.as_ptr().add(start + 16) as _);
+                        let mut block02 = vld1q_u32(plaintext_or_ciphertext.as_ptr().add(start + 32) as _);
+                        let mut block03 = vld1q_u32(plaintext_or_ciphertext.as_ptr().add(start + 48) as _);
+
+                        block00 = veorq_u32(block00, block[0]);
+                        block01 = veorq_u32(block01, block[1]);
+                        block02 = veorq_u32(block02, block[2]);
+                        block03 = veorq_u32(block03, block[3]);
+
+                        vst1q_u32(plaintext_or_ciphertext.as_mut_ptr().add(start) as _, block00);
+                        vst1q_u32(plaintext_or_ciphertext.as_mut_ptr().add(start + 16) as _, block01);
+                        vst1q_u32(plaintext_or_ciphertext.as_mut_ptr().add(start + 32) as _, block02);
+                        vst1q_u32(plaintext_or_ciphertext.as_mut_ptr().add(start + 48) as _, block03);
+                        start += Self::BLOCK_LEN;
+                    }
+
+                    len_remain -= Self::BLOCK_LEN * PARALLEL_BLOCKS;
+                }
+                initial_state[12] += (start / Self::BLOCK_LEN) as u32;
             }
         }
 
@@ -304,24 +354,50 @@ cfg_if::cfg_if! {
         #[cfg(target_arch = "x86")]
         use std::arch::x86::*;
 
+        macro_rules! rotate_left {
+            ($v:expr, 8) => {
+                #[cfg(target_feature = "ssse3")]
+                {
+                    $v = _mm_shuffle_epi8($v, _mm_set_epi8(14, 13, 12, 15, 10, 9, 8, 11, 6, 5, 4, 7, 2, 1, 0, 3));
+                }
+                #[cfg(not(target_feature = "ssse3"))]
+                {
+                    $v = _mm_or_si128(_mm_slli_epi32($v, 8), _mm_srli_epi32($v, 32 - 8));
+                }
+            };
+            ($v:expr, 16) => {
+                #[cfg(target_feature = "ssse3")]
+                {
+                    $v = _mm_shuffle_epi8($v, _mm_set_epi8(13, 12, 15, 14, 9, 8, 11, 10, 5, 4, 7, 6, 1, 0, 3, 2));
+                }
+                #[cfg(not(target_feature = "ssse3"))]
+                {
+                    $v = _mm_or_si128(_mm_slli_epi32($v, 16), _mm_srli_epi32($v, 32 - 16));
+                }
+            };
+            ($v:expr, $r:literal) => {
+                $v = _mm_or_si128(_mm_slli_epi32($v, $r), _mm_srli_epi32($v, 32 - $r));
+            };
+        }
+
         #[target_feature(enable = "sse2")]
         #[inline]
         unsafe fn quarter_round_sse(state_04: &mut __m128i, state_48: &mut __m128i, state_8c: &mut __m128i, state_c0: &mut __m128i) {
             *state_04 = _mm_add_epi32(*state_04, *state_48);
             *state_c0 = _mm_xor_si128(*state_c0, *state_04);
-            *state_c0 = _mm_or_si128(_mm_slli_epi32(*state_c0, 16), _mm_srli_epi32(*state_c0, 16));
+            rotate_left!(*state_c0, 16);
 
             *state_8c = _mm_add_epi32(*state_8c, *state_c0);
             *state_48 = _mm_xor_si128(*state_48, *state_8c);
-            *state_48 = _mm_or_si128(_mm_slli_epi32(*state_48, 12), _mm_srli_epi32(*state_48, 20));
+            rotate_left!(*state_48, 12);
 
             *state_04 = _mm_add_epi32(*state_04, *state_48);
             *state_c0 = _mm_xor_si128(*state_c0, *state_04);
-            *state_c0 = _mm_or_si128(_mm_slli_epi32(*state_c0, 8), _mm_srli_epi32(*state_c0, 24));
+            rotate_left!(*state_c0, 8);
 
             *state_8c = _mm_add_epi32(*state_8c, *state_c0);
             *state_48 = _mm_xor_si128(*state_48, *state_8c);
-            *state_48 = _mm_or_si128(_mm_slli_epi32(*state_48, 7), _mm_srli_epi32(*state_48, 25));
+            rotate_left!(*state_48, 7);
         }
 
         #[target_feature(enable = "sse2")]
@@ -331,6 +407,77 @@ cfg_if::cfg_if! {
             rows_to_cols(v);
             add_xor_rot(v);
             cols_to_rows(v);
+        }
+
+        #[target_feature(enable = "sse2")]
+        #[inline]
+        unsafe fn rounds_vertical(v: &[__m128i; 16]) -> [[__m128i; 4]; PARALLEL_BLOCKS] {
+            let mut res = *v;
+
+            #[target_feature(enable = "sse2")]
+            #[inline]
+            unsafe fn quarter_round_sse_idx(state: &mut [__m128i; 16], a: usize, b: usize, c: usize, d: usize) {
+                let mut sa = state[a];
+                let mut sb = state[b];
+                let mut sc = state[c];
+                let mut sd = state[d];
+                quarter_round_sse(&mut sa, &mut sb, &mut sc, &mut sd);
+                state[a] = sa;
+                state[b] = sb;
+                state[c] = sc;
+                state[d] = sd;
+            }
+
+            #[target_feature(enable = "sse2")]
+            #[inline]
+            unsafe fn double_quarter_round_sse(v: &mut [__m128i; 16]) {
+                quarter_round_sse_idx(v, 0, 4, 8, 12);
+                quarter_round_sse_idx(v, 1, 5, 9, 13);
+                quarter_round_sse_idx(v, 2, 6, 10, 14);
+                quarter_round_sse_idx(v, 3, 7, 11, 15);
+                quarter_round_sse_idx(v, 0, 5, 10, 15);
+                quarter_round_sse_idx(v, 1, 6, 11, 12);
+                quarter_round_sse_idx(v, 2, 7, 8, 13);
+                quarter_round_sse_idx(v, 3, 4, 9, 14);
+            }
+
+            double_quarter_round_sse(&mut res);
+            double_quarter_round_sse(&mut res);
+            double_quarter_round_sse(&mut res);
+            double_quarter_round_sse(&mut res);
+            double_quarter_round_sse(&mut res);
+            double_quarter_round_sse(&mut res);
+            double_quarter_round_sse(&mut res);
+            double_quarter_round_sse(&mut res);
+            double_quarter_round_sse(&mut res);
+            double_quarter_round_sse(&mut res);
+
+            for i in 0..16 {
+                res[i] = _mm_add_epi32(res[i], v[i]);
+            }
+            interleave4x4(res)
+        }
+
+        #[target_feature(enable = "sse2")]
+        #[inline]
+        unsafe fn interleave4x4(v: [__m128i; 16]) -> [[__m128i; 4]; 4] {
+            let mut res = [[v[0]; 4]; 4];
+            for i in 0..4 {
+                let a = v[i * 4 + 0];
+                let b = v[i * 4 + 1];
+                let c = v[i * 4 + 2];
+                let d = v[i * 4 + 3];
+                let tmp0 = _mm_unpacklo_epi32(a, b);
+                let tmp1 = _mm_unpackhi_epi32(a, b);
+                let tmp2 = _mm_unpacklo_epi32(c, d);
+                let tmp3 = _mm_unpackhi_epi32(c, d);
+
+                res[0][i] = _mm_unpacklo_epi64(tmp0, tmp2);
+                res[1][i] = _mm_unpackhi_epi64(tmp0, tmp2);
+                res[2][i] = _mm_unpacklo_epi64(tmp1, tmp3);
+                res[3][i] = _mm_unpackhi_epi64(tmp1, tmp3);
+            }
+            res
         }
 
         #[target_feature(enable = "sse2")]
@@ -368,7 +515,6 @@ cfg_if::cfg_if! {
         #[target_feature(enable = "sse2")]
         #[inline]
         unsafe fn rows_to_cols(blocks: &mut [[__m128i; 4]; PARALLEL_BLOCKS]) {
-
             for i in 0..PARALLEL_BLOCKS {
                 let [a, _, c, d] = &mut blocks[i];
                 *c = _mm_shuffle_epi32(*c, 0b_00_11_10_01); // _MM_SHUFFLE(0, 3, 2, 1)
@@ -423,7 +569,6 @@ cfg_if::cfg_if! {
                 }
                 #[cfg(target_arch = "arm")]
                 {
-                    // $v = vorrq_u32(vshlq_n_u32($v, 8), vshrq_n_u32($v, 24))
                     $v = vsliq_n_u32(vshrq_n_u32($v, 24), $v, 8)
                 }
             };
@@ -431,40 +576,9 @@ cfg_if::cfg_if! {
                 $v = vreinterpretq_u32_u16(vrev32q_u16(vreinterpretq_u16_u32($v)))
             };
             ($v:expr, $r:literal) => {
-                // $v = vorrq_u32(vshlq_n_u32($v, $r), vshrq_n_u32($v, 32 - $r))
                 $v = vsliq_n_u32(vshrq_n_u32($v, 32 - $r), $v, $r)
             };
         }
-
-        #[target_feature(enable = "neon")]
-        #[inline]
-        unsafe fn transport4x4(v: [uint32x4_t; 4 * PARALLEL_BLOCKS]) -> [[uint32x4_t; 4]; PARALLEL_BLOCKS] {
-            let mut res = [[v[0]; 4]; PARALLEL_BLOCKS];
-
-            for i in 0..4 {
-                let a = v[i * 4 + 0];
-                let b = v[i * 4 + 1];
-                let c = v[i * 4 + 2];
-                let d = v[i * 4 + 3];
-                let a01 = vzip1q_u32(a, b);
-                let a23 = vzip2q_u32(a, b);
-                let c01 = vzip1q_u32(c, d);
-                let c23 = vzip2q_u32(c, d);
-
-                let a0123 = vreinterpretq_u32_u64(vzip1q_u64(vreinterpretq_u64_u32(a01), vreinterpretq_u64_u32(c01)));
-                let b0123 = vreinterpretq_u32_u64(vzip2q_u64(vreinterpretq_u64_u32(a01), vreinterpretq_u64_u32(c01)));
-                let c0123 = vreinterpretq_u32_u64(vzip1q_u64(vreinterpretq_u64_u32(a23), vreinterpretq_u64_u32(c23)));
-                let d0123 = vreinterpretq_u32_u64(vzip2q_u64(vreinterpretq_u64_u32(a23), vreinterpretq_u64_u32(c23)));
-
-                res[0][i] = a0123;
-                res[1][i] = b0123;
-                res[2][i] = c0123;
-                res[3][i] = d0123;
-            }
-
-            res
-        }
-        
 
         #[target_feature(enable = "neon")]
         #[inline]
@@ -493,6 +607,77 @@ cfg_if::cfg_if! {
             rows_to_cols(v);
             add_xor_rot(v);
             cols_to_rows(v);
+        }
+
+        #[cfg(target_arch = "aarch64")]
+        #[target_feature(enable = "neon")]
+        #[inline]
+        unsafe fn rounds_vertical(v: &[uint32x4_t; 16]) -> [[uint32x4_t; 4]; PARALLEL_BLOCKS] {
+            let mut res = *v;
+
+            #[target_feature(enable = "neon")]
+            #[inline]
+            unsafe fn quarter_round_neon_idx(state: &mut [uint32x4_t; 16], a: usize, b: usize, c: usize, d: usize) {
+                let mut sa = state[a];
+                let mut sb = state[b];
+                let mut sc = state[c];
+                let mut sd = state[d];
+                quarter_round_neon(&mut sa, &mut sb, &mut sc, &mut sd);
+                state[a] = sa;
+                state[b] = sb;
+                state[c] = sc;
+                state[d] = sd;
+            }
+            #[target_feature(enable = "neon")]
+            #[inline]
+            unsafe fn double_quarter_round_neon(v: &mut [uint32x4_t; 16]) {
+                quarter_round_neon_idx(v, 0, 4, 8, 12);
+                quarter_round_neon_idx(v, 1, 5, 9, 13);
+                quarter_round_neon_idx(v, 2, 6, 10, 14);
+                quarter_round_neon_idx(v, 3, 7, 11, 15);
+                quarter_round_neon_idx(v, 0, 5, 10, 15);
+                quarter_round_neon_idx(v, 1, 6, 11, 12);
+                quarter_round_neon_idx(v, 2, 7, 8, 13);
+                quarter_round_neon_idx(v, 3, 4, 9, 14);
+            }
+
+            double_quarter_round_neon(&mut res);
+            double_quarter_round_neon(&mut res);
+            double_quarter_round_neon(&mut res);
+            double_quarter_round_neon(&mut res);
+            double_quarter_round_neon(&mut res);
+            double_quarter_round_neon(&mut res);
+            double_quarter_round_neon(&mut res);
+            double_quarter_round_neon(&mut res);
+            double_quarter_round_neon(&mut res);
+            double_quarter_round_neon(&mut res);
+
+            for i in 0..16 {
+                res[i] = vaddq_u32(res[i], v[i]);
+            }
+            #[target_feature(enable = "neon")]
+            #[inline]
+            unsafe fn interleave4x4(v: [uint32x4_t; 4 * 4]) -> [[uint32x4_t; 4]; 4] {
+                let mut res = [[v[0]; 4]; PARALLEL_BLOCKS];
+
+                for i in 0..4 {
+                    let a = v[i * 4 + 0];
+                    let b = v[i * 4 + 1];
+                    let c = v[i * 4 + 2];
+                    let d = v[i * 4 + 3];
+                    let tmp0 = vzip1q_u32(a, b);
+                    let tmp1 = vzip2q_u32(a, b);
+                    let tmp2 = vzip1q_u32(c, d);
+                    let tmp3 = vzip2q_u32(c, d);
+
+                    res[0][i] = vreinterpretq_u32_u64(vzip1q_u64(vreinterpretq_u64_u32(tmp0), vreinterpretq_u64_u32(tmp2)));
+                    res[1][i] = vreinterpretq_u32_u64(vzip2q_u64(vreinterpretq_u64_u32(tmp0), vreinterpretq_u64_u32(tmp2)));
+                    res[2][i] = vreinterpretq_u32_u64(vzip1q_u64(vreinterpretq_u64_u32(tmp1), vreinterpretq_u64_u32(tmp3)));
+                    res[3][i] = vreinterpretq_u32_u64(vzip2q_u64(vreinterpretq_u64_u32(tmp1), vreinterpretq_u64_u32(tmp3)));
+                }
+                res
+            }
+            interleave4x4(res)
         }
 
         #[target_feature(enable = "neon")]
