@@ -52,7 +52,7 @@ impl Sha1 {
             }
         }
         while i + Self::BLOCK_LEN <= data.len() {
-            self.process_block_with(&data[i..i + Self::BLOCK_LEN]);
+            self.process_block_with(unsafe { crate::utils::slice_to_array_at(data, i) });
             self.len += Self::BLOCK_LEN as u64;
             i += Self::BLOCK_LEN;
         }
@@ -104,6 +104,12 @@ impl Sha1 {
         output
     }
 
+    pub fn oneshot<T: AsRef<[u8]>>(data: T) -> [u8; Self::DIGEST_LEN] {
+        let mut m = Self::new();
+        m.update(data.as_ref());
+        m.finalize()
+    }
+
     #[inline(always)]
     fn process_block(&mut self) {
         let block = unsafe { core::mem::transmute::<&[u8; 64], &[u8; 64]>(&self.buffer) };
@@ -111,7 +117,7 @@ impl Sha1 {
     }
 
     #[inline(always)]
-    fn process_block_with(&mut self, block: &[u8]) {
+    fn process_block_with(&mut self, block: &[u8; 64]) {
         let mut w = [0u32; 80];
         for i in 0..16 {
             w[i] = u32::from_be_bytes([
@@ -133,15 +139,8 @@ impl Sha1 {
         let mut d = self.state[3];
         let mut e = self.state[4];
 
-        for i in 0..80 {
-            let (f, k) = match i {
-                0..=19 => ((b & c) | ((!b) & d), 0x5a827999),
-                20..=39 => (b ^ c ^ d, 0x6ed9eba1),
-                40..=59 => ((b & c) | (b & d) | (c & d), 0x8f1bbcdc),
-                60..=79 => (b ^ c ^ d, 0xca62c1d6),
-                _ => unreachable!(),
-            };
-
+        for i in 0..20 {
+            let (f, k) = ((b & c) | ((!b) & d), 0x5a827999);
             let temp = a.rotate_left(5)
                 .wrapping_add(f)
                 .wrapping_add(e)
@@ -153,6 +152,48 @@ impl Sha1 {
             b = a;
             a = temp;
         }
+
+        for i in 20..40 {
+            let (f, k) = (b ^ c ^ d, 0x6ed9eba1);
+            let temp = a.rotate_left(5)
+                .wrapping_add(f)
+                .wrapping_add(e)
+                .wrapping_add(k)
+                .wrapping_add(w[i]);
+            e = d;
+            d = c;
+            c = b.rotate_left(30);
+            b = a;
+            a = temp;
+        }
+
+        for i in 40..60 {
+            let (f, k) = ((b & c) | (b & d) | (c & d), 0x8f1bbcdc);
+            let temp = a.rotate_left(5)
+                .wrapping_add(f)
+                .wrapping_add(e)
+                .wrapping_add(k)
+                .wrapping_add(w[i]);
+            e = d;
+            d = c;
+            c = b.rotate_left(30);
+            b = a;
+            a = temp;
+        }
+
+        for i in 60..80 {
+            let (f, k) = (b ^ c ^ d, 0xca62c1d6);
+            let temp = a.rotate_left(5)
+                .wrapping_add(f)
+                .wrapping_add(e)
+                .wrapping_add(k)
+                .wrapping_add(w[i]);
+            e = d;
+            d = c;
+            c = b.rotate_left(30);
+            b = a;
+            a = temp;
+        }        
 
         self.state[0] = self.state[0].wrapping_add(a);
         self.state[1] = self.state[1].wrapping_add(b);
