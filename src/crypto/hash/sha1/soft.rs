@@ -36,7 +36,6 @@ impl Sha1 {
         let mut i = 0usize;
 
         if self.offset > 0 {
-            self.len += self.offset as u64;
             while i < data.len() {
                 if self.offset < Self::BLOCK_LEN {
                     self.buffer[self.offset] = data[i];
