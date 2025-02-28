@@ -1,11 +1,14 @@
-#[derive(Clone)]
-pub struct Chacha20 {
+pub(crate) const PARALLEL_BLOCKS: usize = 4;
+
+macro_rules! impl_chacha20_for_target {
+    ($name:tt, $key_len:literal, $block_len:literal, $nonce_len:literal, $counter_len:literal$(, $feature:literal)?) => {
+#[derive(Clone, Copy)]
+pub struct $name {
     pub(crate) initial_state: [u32; 16],
 }
 
-pub(crate) const PARALLEL_BLOCKS: usize = 4;
-
-impl Chacha20 {
+$(#[unsafe_target_feature::unsafe_target_feature($feature)])?
+impl $name {
     pub const KEY_LEN: usize = 32;
     pub const BLOCK_LEN: usize = 64;
     pub const NONCE_LEN: usize = 12;
@@ -21,7 +24,7 @@ impl Chacha20 {
     const K32: [u32; 4] = [0x61707865, 0x3320646e, 0x79622d32, 0x6b206574];
 
     #[inline(always)]
-    pub fn new(key: [u8; Self::KEY_LEN]) -> Self {
+    pub fn new(key: [u8; $key_len]) -> Self {
         let mut initial_state = [0u32; Self::STATE_LEN];
 
         // The ChaCha20 state is initialized as follows:
@@ -52,7 +55,7 @@ impl Chacha20 {
     }
 
     #[inline(always)]
-    pub(crate) fn block_op(initial_state: &mut [u32; 16], keystream: &mut [u8; Chacha20::BLOCK_LEN]) {
+    pub(crate) fn block_op(initial_state: &mut [u32; 16], keystream: &mut [u8; $block_len]) {
         let mut state = *initial_state;
         // 20 rounds
         diagonal_rounds(&mut state);
@@ -77,7 +80,149 @@ impl Chacha20 {
     }
 
     #[inline(always)]
-    fn op(&self, init_block_counter: u32, nonce: &[u8; Self::NONCE_LEN], plaintext_or_ciphertext: &mut [u8]) {
+    pub(crate) fn op_4blocks(&self, init_block_counter: u32, nonce: &[u8; $nonce_len], plaintext_or_ciphertext: &mut [u8; 256]) {
+        debug_assert_eq!(nonce.len(), Self::NONCE_LEN);
+
+        let mut initial_state = self.initial_state;
+        // Counter (32-bits, little-endian)
+        initial_state[12] = init_block_counter;
+        // Nonce (96-bits, little-endian)
+        initial_state[13] = u32::from_le_bytes([nonce[0], nonce[1], nonce[2], nonce[3]]);
+        initial_state[14] = u32::from_le_bytes([nonce[4], nonce[5], nonce[6], nonce[7]]);
+        initial_state[15] = u32::from_le_bytes([nonce[8], nonce[9], nonce[10], nonce[11]]);
+
+        let mut start = 0;
+
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        {
+            unsafe {
+                let mut state = [
+                    _mm_set1_epi32(initial_state[0] as _),
+                    _mm_set1_epi32(initial_state[1] as _),
+                    _mm_set1_epi32(initial_state[2] as _),
+                    _mm_set1_epi32(initial_state[3] as _),
+                    _mm_set1_epi32(initial_state[4] as _),
+                    _mm_set1_epi32(initial_state[5] as _),
+                    _mm_set1_epi32(initial_state[6] as _),
+                    _mm_set1_epi32(initial_state[7] as _),
+                    _mm_set1_epi32(initial_state[8] as _),
+                    _mm_set1_epi32(initial_state[9] as _),
+                    _mm_set1_epi32(initial_state[10] as _),
+                    _mm_set1_epi32(initial_state[11] as _),
+                    _mm_set1_epi32(initial_state[12] as _),
+                    _mm_set1_epi32(initial_state[13] as _),
+                    _mm_set1_epi32(initial_state[14] as _),
+                    _mm_set1_epi32(initial_state[15] as _),
+                ];
+                state[12] = _mm_add_epi32(state[12], _mm_set_epi32(3, 2, 1, 0));
+                let res = rounds_vertical(&state);
+                state[12] = _mm_add_epi32(state[12], _mm_set1_epi32(PARALLEL_BLOCKS as _));
+                
+                for block in 0..4 {
+                    let block = &res[block];
+                    let block00 = _mm_loadu_si128(plaintext_or_ciphertext.as_ptr().add(start) as _);
+                    let block01 = _mm_loadu_si128(plaintext_or_ciphertext.as_ptr().add(start + 16) as _);
+                    let block02 = _mm_loadu_si128(plaintext_or_ciphertext.as_ptr().add(start + 32) as _);
+                    let block03 = _mm_loadu_si128(plaintext_or_ciphertext.as_ptr().add(start + 48) as _);
+
+                    _mm_storeu_si128(plaintext_or_ciphertext.as_ptr().add(start) as _, _mm_xor_si128(block00, block[0]));
+                    _mm_storeu_si128(plaintext_or_ciphertext.as_ptr().add(start + 16) as _, _mm_xor_si128(block01, block[1]));
+                    _mm_storeu_si128(plaintext_or_ciphertext.as_ptr().add(start + 32) as _, _mm_xor_si128(block02, block[2]));
+                    _mm_storeu_si128(plaintext_or_ciphertext.as_ptr().add(start + 48) as _, _mm_xor_si128(block03, block[3]));
+                    start += Self::BLOCK_LEN;
+                }
+
+                initial_state[12] += (start / Self::BLOCK_LEN) as u32;
+            }
+        }
+        #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+        {
+            unsafe {
+                let mut state = [
+                    vdupq_n_u32(initial_state[0]),
+                    vdupq_n_u32(initial_state[1]),
+                    vdupq_n_u32(initial_state[2]),
+                    vdupq_n_u32(initial_state[3]),
+                    vdupq_n_u32(initial_state[4]),
+                    vdupq_n_u32(initial_state[5]),
+                    vdupq_n_u32(initial_state[6]),
+                    vdupq_n_u32(initial_state[7]),
+                    vdupq_n_u32(initial_state[8]),
+                    vdupq_n_u32(initial_state[9]),
+                    vdupq_n_u32(initial_state[10]),
+                    vdupq_n_u32(initial_state[11]),
+                    vdupq_n_u32(initial_state[12]),
+                    vdupq_n_u32(initial_state[13]),
+                    vdupq_n_u32(initial_state[14]),
+                    vdupq_n_u32(initial_state[15]),
+                ];
+                state[12] = vaddq_u32(state[12], vld1q_u32([0, 1, 2, 3].as_ptr()));
+
+                let res = rounds_vertical(&state);
+                state[12] = vaddq_u32(state[12], vdupq_n_u32(PARALLEL_BLOCKS as u32));
+
+                for i in 0..PARALLEL_BLOCKS {
+                    let block = &res[i];
+                    let mut block00 = vld1q_u32(plaintext_or_ciphertext.as_ptr().add(start) as _);
+                    let mut block01 = vld1q_u32(plaintext_or_ciphertext.as_ptr().add(start + 16) as _);
+                    let mut block02 = vld1q_u32(plaintext_or_ciphertext.as_ptr().add(start + 32) as _);
+                    let mut block03 = vld1q_u32(plaintext_or_ciphertext.as_ptr().add(start + 48) as _);
+
+                    block00 = veorq_u32(block00, block[0]);
+                    block01 = veorq_u32(block01, block[1]);
+                    block02 = veorq_u32(block02, block[2]);
+                    block03 = veorq_u32(block03, block[3]);
+
+                    vst1q_u32(plaintext_or_ciphertext.as_mut_ptr().add(start) as _, block00);
+                    vst1q_u32(plaintext_or_ciphertext.as_mut_ptr().add(start + 16) as _, block01);
+                    vst1q_u32(plaintext_or_ciphertext.as_mut_ptr().add(start + 32) as _, block02);
+                    vst1q_u32(plaintext_or_ciphertext.as_mut_ptr().add(start + 48) as _, block03);
+                    start += Self::BLOCK_LEN;
+                }
+
+                initial_state[12] += (start / Self::BLOCK_LEN) as u32;
+            }
+        }
+
+        #[cfg(all(target_arch = "arm", target_feature = "neon"))]
+        {
+            unsafe {
+                let mut initial_state_neon = [
+                    vld1q_u32(initial_state.as_ptr() as _),
+                    vld1q_u32((initial_state.as_ptr() as *const u8).add(16) as _),
+                    vld1q_u32((initial_state.as_ptr() as *const u8).add(32) as _),
+                    vld1q_u32((initial_state.as_ptr() as *const u8).add(48) as _),
+                ];
+
+                    
+                let res = rounds(&initial_state_neon);
+                initial_state_neon[3] = vaddq_u32(initial_state_neon[3], vld1q_u32([PARALLEL_BLOCKS as u32, 0, 0, 0].as_ptr()));
+
+                for i in 0..PARALLEL_BLOCKS {
+                    let block = &res[i];
+                    let mut block00 = vld1q_u32(plaintext_or_ciphertext.as_ptr().add(start) as _);
+                    let mut block01 = vld1q_u32(plaintext_or_ciphertext.as_ptr().add(start + 16) as _);
+                    let mut block02 = vld1q_u32(plaintext_or_ciphertext.as_ptr().add(start + 32) as _);
+                    let mut block03 = vld1q_u32(plaintext_or_ciphertext.as_ptr().add(start + 48) as _);
+
+                    block00 = veorq_u32(block00, block[0]);
+                    block01 = veorq_u32(block01, block[1]);
+                    block02 = veorq_u32(block02, block[2]);
+                    block03 = veorq_u32(block03, block[3]);
+
+                    vst1q_u32(plaintext_or_ciphertext.as_mut_ptr().add(start) as _, block00);
+                    vst1q_u32(plaintext_or_ciphertext.as_mut_ptr().add(start + 16) as _, block01);
+                    vst1q_u32(plaintext_or_ciphertext.as_mut_ptr().add(start + 32) as _, block02);
+                    vst1q_u32(plaintext_or_ciphertext.as_mut_ptr().add(start + 48) as _, block03);
+                    start += Self::BLOCK_LEN;
+                }
+                initial_state[12] += (start / Self::BLOCK_LEN) as u32;
+            }
+        }
+    }
+
+    #[inline(always)]
+    fn op(&self, init_block_counter: u32, nonce: &[u8; $nonce_len], plaintext_or_ciphertext: &mut [u8]) {
         debug_assert_eq!(nonce.len(), Self::NONCE_LEN);
 
         let mut initial_state = self.initial_state;
@@ -271,7 +416,7 @@ impl Chacha20 {
     pub fn encrypt_slice(
         &self,
         init_block_counter: u32,
-        nonce: &[u8; Self::NONCE_LEN],
+        nonce: &[u8; $nonce_len],
         plaintext_in_ciphertext_out: &mut [u8],
     ) {
         self.op(init_block_counter, nonce, plaintext_in_ciphertext_out)
@@ -282,10 +427,32 @@ impl Chacha20 {
     pub fn decrypt_slice(
         &self,
         init_block_counter: u32,
-        nonce: &[u8; Self::NONCE_LEN],
+        nonce: &[u8; $nonce_len],
         ciphertext_in_plaintext_and: &mut [u8],
     ) {
         self.op(init_block_counter, nonce, ciphertext_in_plaintext_and)
+    }
+}
+    }
+}
+
+impl_chacha20_for_target!(Chacha20Soft, 32, 64, 12, 4);
+
+cfg_if::cfg_if!{
+    if #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] {
+        impl_chacha20_for_target!(Chacha20Sse, 32, 64, 12, 4, "sse2");
+    } else if #[cfg(all(target_arch = "aarch64", target_feature = "neon"))] {
+        impl_chacha20_for_target!(Chacha20Neon, 32, 64, 12, 4, "neon");
+    }
+}
+
+cfg_if::cfg_if!{
+    if #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "sse2"))] {
+        pub type Chacha20 = Chacha20Sse;
+    } else if #[cfg(all(any(target_arch = "aarch64", target_arch = "arm"), target_feature = "neon"))] {
+        pub type Chacha20 = Chacha20Neon;
+    } else {
+        pub type Chacha20 = Chacha20Soft;
     }
 }
 
@@ -409,8 +576,8 @@ cfg_if::cfg_if! {
             cols_to_rows(v);
         }
 
-        #[target_feature(enable = "sse2")]
-        #[inline]
+        // #[target_feature(enable = "sse2")]
+        #[inline(always)]
         unsafe fn rounds_vertical(v: &[__m128i; 16]) -> [[__m128i; 4]; PARALLEL_BLOCKS] {
             let mut res = *v;
 
@@ -610,8 +777,7 @@ cfg_if::cfg_if! {
         }
 
         #[cfg(target_arch = "aarch64")]
-        #[target_feature(enable = "neon")]
-        #[inline]
+        #[inline(always)]
         unsafe fn rounds_vertical(v: &[uint32x4_t; 16]) -> [[uint32x4_t; 4]; PARALLEL_BLOCKS] {
             let mut res = *v;
 
