@@ -92,11 +92,10 @@ impl $name {
         initial_state[15] = u32::from_le_bytes([nonce[8], nonce[9], nonce[10], nonce[11]]);
 
         let mut start = 0;
-
-        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        {
+        cfg_if::cfg_if! {
+        if #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] {
             unsafe {
-                let mut state = [
+                let state = [
                     _mm_set1_epi32(initial_state[0] as _),
                     _mm_set1_epi32(initial_state[1] as _),
                     _mm_set1_epi32(initial_state[2] as _),
@@ -114,9 +113,9 @@ impl $name {
                     _mm_set1_epi32(initial_state[14] as _),
                     _mm_set1_epi32(initial_state[15] as _),
                 ];
-                state[12] = _mm_add_epi32(state[12], _mm_set_epi32(3, 2, 1, 0));
+                // state[12] = _mm_add_epi32(state[12], _mm_set_epi32(3, 2, 1, 0));
                 let res = rounds_vertical(&state);
-                state[12] = _mm_add_epi32(state[12], _mm_set1_epi32(PARALLEL_BLOCKS as _));
+                // state[12] = _mm_add_epi32(state[12], _mm_set1_epi32(PARALLEL_BLOCKS as _));
                 
                 for block in 0..4 {
                     let block = &res[block];
@@ -132,13 +131,13 @@ impl $name {
                     start += Self::BLOCK_LEN;
                 }
 
-                initial_state[12] += (start / Self::BLOCK_LEN) as u32;
+                // initial_state[12] += (start / Self::BLOCK_LEN) as u32;
             }
         }
-        #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+        else if #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
         {
             unsafe {
-                let mut state = [
+                let state = [
                     vdupq_n_u32(initial_state[0]),
                     vdupq_n_u32(initial_state[1]),
                     vdupq_n_u32(initial_state[2]),
@@ -156,10 +155,8 @@ impl $name {
                     vdupq_n_u32(initial_state[14]),
                     vdupq_n_u32(initial_state[15]),
                 ];
-                state[12] = vaddq_u32(state[12], vld1q_u32([0, 1, 2, 3].as_ptr()));
 
                 let res = rounds_vertical(&state);
-                state[12] = vaddq_u32(state[12], vdupq_n_u32(PARALLEL_BLOCKS as u32));
 
                 for i in 0..PARALLEL_BLOCKS {
                     let block = &res[i];
@@ -179,15 +176,12 @@ impl $name {
                     vst1q_u32(plaintext_or_ciphertext.as_mut_ptr().add(start + 48) as _, block03);
                     start += Self::BLOCK_LEN;
                 }
-
-                initial_state[12] += (start / Self::BLOCK_LEN) as u32;
             }
         }
-
-        #[cfg(all(target_arch = "arm", target_feature = "neon"))]
+        else if #[cfg(all(target_arch = "arm", target_feature = "neon"))]
         {
             unsafe {
-                let mut initial_state_neon = [
+                let initial_state_neon = [
                     vld1q_u32(initial_state.as_ptr() as _),
                     vld1q_u32((initial_state.as_ptr() as *const u8).add(16) as _),
                     vld1q_u32((initial_state.as_ptr() as *const u8).add(32) as _),
@@ -216,8 +210,39 @@ impl $name {
                     vst1q_u32(plaintext_or_ciphertext.as_mut_ptr().add(start + 48) as _, block03);
                     start += Self::BLOCK_LEN;
                 }
-                initial_state[12] += (start / Self::BLOCK_LEN) as u32;
+                // initial_state[12] += (start / Self::BLOCK_LEN) as u32;
             }
+        } else {
+
+            let mut keystream = [0u8; Self::BLOCK_LEN];
+            let plaintext = unsafe { crate::utils::slice_to_array_at_mut(plaintext_or_ciphertext, start) };
+            Self::block_op(&mut initial_state, &mut keystream);
+            initial_state[12] = initial_state[12].wrapping_add(1);
+            v512_i8_xor(plaintext, &keystream);
+            start += Self::BLOCK_LEN;
+
+            let mut keystream = [0u8; Self::BLOCK_LEN];
+            let plaintext = unsafe { crate::utils::slice_to_array_at_mut(plaintext_or_ciphertext, start) };
+            Self::block_op(&mut initial_state, &mut keystream);
+            initial_state[12] = initial_state[12].wrapping_add(1);
+            v512_i8_xor(plaintext, &keystream);
+            start += Self::BLOCK_LEN;
+
+            let mut keystream = [0u8; Self::BLOCK_LEN];
+            let plaintext = unsafe { crate::utils::slice_to_array_at_mut(plaintext_or_ciphertext, start) };
+            Self::block_op(&mut initial_state, &mut keystream);
+            initial_state[12] = initial_state[12].wrapping_add(1);
+            v512_i8_xor(plaintext, &keystream);
+            start += Self::BLOCK_LEN;
+
+            let mut keystream = [0u8; Self::BLOCK_LEN];
+            let plaintext = unsafe { crate::utils::slice_to_array_at_mut(plaintext_or_ciphertext, start) };
+            Self::block_op(&mut initial_state, &mut keystream);
+            initial_state[12] = initial_state[12].wrapping_add(1);
+            v512_i8_xor(plaintext, &keystream);
+            start += Self::BLOCK_LEN;
+
+        }
         }
     }
 
@@ -909,5 +934,51 @@ cfg_if::cfg_if! {
                 quarter_round_neon(a, b, c, d);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_chacha20() {
+        let key = [0u8; 32];
+        let nonce = [0u8; 12];
+        let mut chacha20 = Chacha20::new(key);
+        let mut plaintext = [0u8; 64];
+        let expected_ciphertext = [
+            0x76, 0xB9, 0xE2, 0xAE, 0xA4, 0xF4, 0x3B, 0x97,
+            0x48, 0x54, 0x60, 0xEE, 0x5F, 0x8B, 0xB3, 0x27,
+            0xAD, 0xC3, 0x0B, 0xAB, 0xB4, 0x98, 0xFB, 0x0D,
+            0xB0, 0x2F, 0xF5, 0xD7, 0x97, 0x6A, 0x13, 0xD8,
+            0xFA, 0x60, 0x7B, 0x5F, 0x75, 0x72, 0x6E, 0xAA,
+            0x5F, 0x0D, 0xCA, 0x14, 0x94, 0xF5, 0x64, 0x18,
+            0x5A, 0x72, 0x8A, 0xC7, 0x21, 0x2D, 0x97, 0x2B,
+            0xFB, 0xBE, 0x8C, 0x52, 0x8E, 0xD3, 0x5B, 0xB9,
+        ];
+        let mut decrypted = [0u8; 64];
+        for i in 0..plaintext.len() {
+            plaintext[i] = i as u8;
+        }
+        let mut ciphertext = plaintext;
+        chacha20.encrypt_slice(0, &nonce, &mut ciphertext);
+        assert_eq!(expected_ciphertext, ciphertext);
+        chacha20.decrypt_slice(0, &nonce, &mut ciphertext);
+        decrypted.copy_from_slice(&ciphertext);
+        assert_eq!(plaintext, decrypted);
+
+        // test long message
+        let mut plaintext = [0u8; 1024];
+        let mut decrypted = [0u8; 1024];
+        
+        for i in 0..plaintext.len() {
+            plaintext[i] = i as u8;
+        }
+        let mut ciphertext = plaintext;
+        chacha20.encrypt_slice(0, &nonce, &mut ciphertext);
+        chacha20.decrypt_slice(0, &nonce, &mut ciphertext);
+        decrypted.copy_from_slice(&ciphertext);
+        assert_eq!(plaintext, decrypted);
     }
 }
