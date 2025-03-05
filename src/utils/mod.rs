@@ -20,6 +20,104 @@ pub fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 
     x == 0
 }
+// detect hardware features everytimes
+#[macro_export]
+macro_rules! is_hw_feature_detected {
+    ($($arch:tt => ($($arch_feat:tt),+)),+) => {
+        {
+            let mut available = false;
+            $(
+                if cfg!(target_arch = $arch) {
+                    if cfg!(all($(target_feature = $arch_feat),+)) {
+                        available = true;
+                    }
+                }
+            )+
+            if !available {
+                #[allow(unused_mut)]
+                #[allow(unused_assignments)]
+                let mut available = false;
+                $(
+                    #[cfg(target_arch = $arch)]
+                    {
+                        available = true;
+                        $(
+                            #[cfg(any(target_arch = "x86"))]
+                            if !is_x86_feature_detected!($arch_feat) {
+                                available = false;
+                            }
+                            #[cfg(any(target_arch = "x86_64"))]
+                            if !is_x86_feature_detected!($arch_feat) {
+                                available = false;
+                            }
+                            #[cfg(all(target_arch = "aarch64"))]
+                            {
+                                use std::arch::is_aarch64_feature_detected;
+                                if !is_aarch64_feature_detected!($arch_feat) {
+                                    available = false;
+                                }
+                            }
+                            #[cfg(all(target_arch = "arm"))]
+                            {
+                                use std::arch::is_arm_feature_detected;
+                                if !is_arm_feature_detected!($arch_feat) {
+                                    available = false;
+                                }
+                            }
+                        )+
+                    }
+                )+
+                available
+            } else {
+                true
+            }
+        }
+    };
+    ($($feat:tt),+) => {
+        {
+            let mut available = false;
+            if cfg!(all($(target_feature = $feat),+)) {
+                available = true;
+            }
+            if !available {
+                #[allow(unused_mut)]
+                #[allow(unused_assignments)]
+                let mut available = false;
+                $(
+                    #[cfg(target_arch = $arch)]
+                    {
+                        available = true;
+                        #[cfg(any(target_arch = "x86"))]
+                        if !is_x86_feature_detected!($feat) {
+                            available = false;
+                        }
+                        #[cfg(any(target_arch = "x86_64"))]
+                        if !is_x86_feature_detected!($feat) {
+                            available = false;
+                        }
+                        #[cfg(all(target_arch = "aarch64"))]
+                        {
+                            use std::arch::is_aarch64_feature_detected;
+                            if !is_aarch64_feature_detected!($feat) {
+                                available = false;
+                            }
+                        }
+                        #[cfg(all(target_arch = "arm"))]
+                        {
+                            use std::arch::is_arm_feature_detected;
+                            if !is_arm_feature_detected!($feat) {
+                                available = false;
+                            }
+                        }
+                    }
+                )*
+                available
+            } else {
+                true
+            }
+        }
+    };
+}
 
 #[macro_export]
 macro_rules! is_hw_feature_available {
@@ -44,10 +142,11 @@ macro_rules! is_hw_feature_available {
                     false
                 } else {
                     #[allow(unused_mut)]
-                    let mut available = true;
+                    let mut available = false;
                     $(
                         #[cfg(target_arch = $arch)]
                         {
+                            available = true;
                             $(
                                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                                 if !is_x86_feature_detected!($arch_feat) {
@@ -62,7 +161,7 @@ macro_rules! is_hw_feature_available {
                                 }
                                 #[cfg(all(target_arch = "arm"))]
                                 {
-                                    use std::arch::is_aarch64_feature_detected;
+                                    use std::arch::is_arm_feature_detected;
                                     if !is_arm_feature_detected!($arch_feat) {
                                         available = false;
                                     }
@@ -95,9 +194,13 @@ macro_rules! is_hw_feature_available {
                 } else if INIT.load(Ordering::Relaxed) {
                     false
                 } else {
-                    let mut available = true;
+                    let mut available = false;
                     $(
-                        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                        #[cfg(any(target_arch = "x86"))]
+                        if !is_x86_feature_detected!($feat) {
+                            available = false;
+                        }
+                        #[cfg(any(target_arch = "x86_64"))]
                         if !is_x86_feature_detected!($feat) {
                             available = false;
                         }
@@ -110,7 +213,7 @@ macro_rules! is_hw_feature_available {
                         }
                         #[cfg(all(target_arch = "arm"))]
                         {
-                            use std::arch::is_aarch64_feature_detected;
+                            use std::arch::is_arm_feature_detected;
                             if !is_arm_feature_detected!($feat) {
                                 available = false;
                             }
@@ -177,6 +280,6 @@ pub const unsafe fn unreachable() -> ! {
 pub const unsafe fn assume(b: bool) {
     if !b {
         // SAFETY: the caller must guarantee the argument is never `false`
-        unsafe { unreachable() }
+        unreachable()
     }
 }
