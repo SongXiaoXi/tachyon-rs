@@ -80,7 +80,7 @@ unsafe fn uppercase_avx2(mut s: String) -> String {
     s
 }
 
-#[cfg(target_feature = "avx512f")]
+#[cfg(all(target_feature = "avx512f", target_feature = "avx512bw"))]
 #[inline]
 unsafe fn uppercase_avx512(mut s: String) -> String {
     let mut ptr = s.as_mut_ptr() as *mut i8;
@@ -102,7 +102,14 @@ unsafe fn uppercase_avx512(mut s: String) -> String {
         ptr = ptr.add(BLOCK_SIZE);
         len -= BLOCK_SIZE;
     }
-    uppercase_bytes(ptr, len);
+    {
+        let c = _mm512_maskz_loadu_epi8(_mm512_setzero_si512(), (1 << len) - 1, ptr);
+        let ge_a = _mm512_cmpge_epi8_mask(c, ascii_a);
+        let le_z = _mm512_cmple_epi8_mask(c, ascii_z);
+        let is_upper = _kand_mask64(ge_a, le_z);
+        let result = _mm512_mask_sub_epi8(c, is_upper, c, add);
+        _mm512_mask_storeu_epi8(ptr, (1 << len) - 1, result);
+    }
     s
 }
 
