@@ -181,7 +181,7 @@ impl $name {
         else if #[cfg(all(target_arch = "arm", target_feature = "neon"))]
         {
             unsafe {
-                let initial_state_neon = [
+                let mut initial_state_neon = [
                     vld1q_u32(initial_state.as_ptr() as _),
                     vld1q_u32((initial_state.as_ptr() as *const u8).add(16) as _),
                     vld1q_u32((initial_state.as_ptr() as *const u8).add(32) as _),
@@ -240,8 +240,6 @@ impl $name {
             Self::block_op(&mut initial_state, &mut keystream);
             initial_state[12] = initial_state[12].wrapping_add(1);
             v512_i8_xor(plaintext, &keystream);
-            start += Self::BLOCK_LEN;
-
         }
         }
     }
@@ -466,7 +464,7 @@ impl_chacha20_for_target!(Chacha20Soft, 32, 64, 12, 4);
 cfg_if::cfg_if!{
     if #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] {
         impl_chacha20_for_target!(Chacha20Sse, 32, 64, 12, 4, "sse2");
-    } else if #[cfg(all(target_arch = "aarch64", target_feature = "neon"))] {
+    } else if #[cfg(any(target_arch = "aarch64", target_arch = "arm"))] {
         impl_chacha20_for_target!(Chacha20Neon, 32, 64, 12, 4, "neon");
     }
 }
