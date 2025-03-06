@@ -36,11 +36,14 @@ rpath = false
 [features]
 default = []
 nightly = []
-disable_soft = []
+disable_dynamic_export = []
 variable_time_eq = []
 
 [dependencies]
 cfg-if = "1.0.0"
+unsafe_target_feature = "*"
+libc = "*"
+hpc-macros = { path = "./macros" }
 
 [build-dependencies]
 rustc_version = "*"
