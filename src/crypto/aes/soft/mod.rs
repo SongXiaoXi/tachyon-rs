@@ -439,6 +439,60 @@ impl AES128 {
         *data3 = blocks[3];
     }
 
+    // data must be a slice of 16 bytes
+    #[inline(always)]
+    pub fn encrypt_slice(&self, data: &mut [u8]) {
+        assert_eq!(data.len() % 16, 0);
+        let mut chunks = data.chunks_exact_mut(16 * 4);
+
+        for chunk in &mut chunks {
+            let mut blocks = [
+                *unsafe { &*(chunk.as_ptr() as *const [u8; 16]) },
+                *unsafe { &*(chunk.as_ptr().add(16) as *const [u8; 16]) },
+                *unsafe { &*(chunk.as_ptr().add(32) as *const [u8; 16]) },
+                *unsafe { &*(chunk.as_ptr().add(48) as *const [u8; 16]) },
+            ];
+            blocks = fixslicing::aes128_encrypt(&self.rkeys, &blocks);
+
+            *unsafe { &mut *(chunk.as_mut_ptr() as *mut [u8; 16]) } = blocks[0];
+            *unsafe { &mut *(chunk.as_mut_ptr().add(16) as *mut [u8; 16]) } = blocks[1];
+            *unsafe { &mut *(chunk.as_mut_ptr().add(32) as *mut [u8; 16]) } = blocks[2];
+            *unsafe { &mut *(chunk.as_mut_ptr().add(48) as *mut [u8; 16]) } = blocks[3];
+        }
+
+        for chunk in chunks.into_remainder().chunks_exact_mut(16) {
+            let mut block = *unsafe { &*(chunk.as_ptr() as *const [u8; 16]) };
+            self.encrypt(&mut block);
+            *unsafe { &mut *(chunk.as_mut_ptr() as *mut [u8; 16]) } = block;
+        }
+    }
+    // data must be a slice of 16 bytes
+    #[inline(always)]
+    pub fn decrypt_slice(&self, data: &mut [u8]) {
+        assert_eq!(data.len() % 16, 0);
+        let mut chunks = data.chunks_exact_mut(16 * 4);
+
+        for chunk in &mut chunks {
+            let mut blocks = [
+                *unsafe { &*(chunk.as_ptr() as *const [u8; 16]) },
+                *unsafe { &*(chunk.as_ptr().add(16) as *const [u8; 16]) },
+                *unsafe { &*(chunk.as_ptr().add(32) as *const [u8; 16]) },
+                *unsafe { &*(chunk.as_ptr().add(48) as *const [u8; 16]) },
+            ];
+            blocks = fixslicing::aes128_decrypt(&self.rkeys, &blocks);
+
+            *unsafe { &mut *(chunk.as_mut_ptr() as *mut [u8; 16]) } = blocks[0];
+            *unsafe { &mut *(chunk.as_mut_ptr().add(16) as *mut [u8; 16]) } = blocks[1];
+            *unsafe { &mut *(chunk.as_mut_ptr().add(32) as *mut [u8; 16]) } = blocks[2];
+            *unsafe { &mut *(chunk.as_mut_ptr().add(48) as *mut [u8; 16]) } = blocks[3];
+        }
+
+        for chunk in chunks.into_remainder().chunks_exact_mut(16) {
+            let mut block = *unsafe { &*(chunk.as_ptr() as *const [u8; 16]) };
+            self.decrypt(&mut block);
+            *unsafe { &mut *(chunk.as_mut_ptr() as *mut [u8; 16]) } = block;
+        }
+    }
     
 }
 
