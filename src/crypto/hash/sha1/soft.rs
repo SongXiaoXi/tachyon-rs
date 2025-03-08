@@ -2,7 +2,7 @@
 pub struct Sha1 {
     state: [u32; 5],
     len: u64,
-    buffer: [u8; 64],
+    buffer: [u8; Self::BLOCK_LEN],
     offset: usize,
 }
 
@@ -16,7 +16,7 @@ impl Sha1 {
     const MAX_PAD_LEN: usize = Self::BLOCK_LEN + Self::MLEN_SIZE as usize;
 
     #[inline(always)]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             state: [
                 0x67452301,
@@ -103,6 +103,7 @@ impl Sha1 {
         output
     }
 
+    #[inline]
     pub fn oneshot<T: AsRef<[u8]>>(data: T) -> [u8; Self::DIGEST_LEN] {
         let mut m = Self::new();
         m.update(data.as_ref());
@@ -118,7 +119,9 @@ impl Sha1 {
     #[inline(always)]
     fn process_block_with(&mut self, block: &[u8; 64]) {
         let mut w = [0u32; 80];
-        for i in 0..16 {
+
+        #[crate::loop_unroll(i, 0, 16)]
+        fn loop_unroll() {
             w[i] = u32::from_be_bytes([
                 block[i * 4],
                 block[i * 4 + 1],
@@ -127,7 +130,8 @@ impl Sha1 {
             ]);
         }
 
-        for i in 16..80 {
+        #[crate::loop_unroll(i, 16, 64)]
+        fn loop_unroll() {
             w[i] = w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16];
             w[i] = w[i].rotate_left(1);
         }
@@ -138,7 +142,8 @@ impl Sha1 {
         let mut d = self.state[3];
         let mut e = self.state[4];
 
-        for i in 0..20 {
+        #[crate::loop_unroll(i, 0, 20)]
+        fn loop_unroll() {
             let (f, k) = ((b & c) | ((!b) & d), 0x5a827999);
             let temp = a.rotate_left(5)
                 .wrapping_add(f)
@@ -152,7 +157,8 @@ impl Sha1 {
             a = temp;
         }
 
-        for i in 20..40 {
+        #[crate::loop_unroll(i, 20, 20)]
+        fn loop_unroll() {
             let (f, k) = (b ^ c ^ d, 0x6ed9eba1);
             let temp = a.rotate_left(5)
                 .wrapping_add(f)
@@ -166,7 +172,8 @@ impl Sha1 {
             a = temp;
         }
 
-        for i in 40..60 {
+        #[crate::loop_unroll(i, 40, 20)]
+        fn loop_unroll() {
             let (f, k) = ((b & c) | (b & d) | (c & d), 0x8f1bbcdc);
             let temp = a.rotate_left(5)
                 .wrapping_add(f)
@@ -180,7 +187,8 @@ impl Sha1 {
             a = temp;
         }
 
-        for i in 60..80 {
+        #[crate::loop_unroll(i, 60, 20)]
+        fn loop_unroll() {
             let (f, k) = (b ^ c ^ d, 0xca62c1d6);
             let temp = a.rotate_left(5)
                 .wrapping_add(f)
@@ -192,7 +200,7 @@ impl Sha1 {
             c = b.rotate_left(30);
             b = a;
             a = temp;
-        }        
+        } 
 
         self.state[0] = self.state[0].wrapping_add(a);
         self.state[1] = self.state[1].wrapping_add(b);
@@ -203,11 +211,8 @@ impl Sha1 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_sha1() {
+macro_rules! sha1_test_case {
+    ($name:ty) => {
         let mut sha1 = Sha1::new();
         let zero_x64 = [0u8; 0];
         sha1.update(&zero_x64);
@@ -237,5 +242,18 @@ mod tests {
             0xce, 0x37, 0xf2, 0xa1, 0x9d,
             0x84, 0x24, 0x0d, 0x3a, 0x89,
         ]);
+    };
+    () => {
+        sha1_test_case!(Sha1);
+    };
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_sha1() {
+        sha1_test_case!();
     }
 }

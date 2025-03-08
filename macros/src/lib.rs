@@ -19,12 +19,12 @@ pub fn loop_unroll(attr: TokenStream, item: TokenStream) -> TokenStream {
     let idx_start = if let TokenTree::Literal(ident) = &attr_iter[2] {
         ident.clone()
     } else {
-        panic!("Second argument must be an Literal");
+        panic!("Second argument must be an integer literal");
     };
     let loop_count = if let TokenTree::Literal(ident) = attr_iter[4].clone() {
         ident
     } else {
-        panic!("Third argument must be an identifier");
+        panic!("Third argument must be an integer identifier");
     };
 
     // test if idx_var_name is "_"
@@ -44,27 +44,22 @@ pub fn loop_unroll(attr: TokenStream, item: TokenStream) -> TokenStream {
 
     // parse loop_count as usize
     let loop_count = loop_count.to_string().parse::<usize>().unwrap();
-    
-    let mut prefix_count = 0;
+
+    let mut block = TokenStream::new();
     // ignore Ident before brace
     for tt in item.clone().into_iter() {
         if let TokenTree::Group(ref group) = tt {
             if group.delimiter() == Delimiter::Brace {
+                block = TokenStream::from(tt);
                 break;
             }
         }
-        prefix_count += 1;
     }
 
-    let mut iter = item.into_iter();
-    for _ in 0..prefix_count {
-        iter.next();
-    }
+    let iter = block.into_iter();
 
     for _ in 0..(loop_count - 1) {
         let item = iter.clone();
-        // output token "{"
-        // output.extend(TokenStream::from(TokenTree::Group(Group::new(Delimiter::Brace, TokenStream::new()))));
         for tt in item {
             output.extend(TokenStream::from(tt));
         }
@@ -82,7 +77,6 @@ pub fn loop_unroll(attr: TokenStream, item: TokenStream) -> TokenStream {
         output.extend(TokenStream::from(tt));
     }
 
-    // output token }
     output =TokenStream::from(TokenTree::Group(Group::new(Delimiter::Brace, output)));
 
     // println!("output: {:?}", output.to_string());
