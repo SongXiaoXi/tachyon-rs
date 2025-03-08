@@ -67,13 +67,12 @@ const fn key_expansion_128(key: &[u8; 16], round_key: &mut [u8; 176]) {
 
 #[inline(always)]
 fn add_round_key(state: &mut [u8; 16], round_key: &[u8; 176], round: usize) {
-    let mut i: usize = 0;
-    while i < 4 {
+    #[crate::loop_unroll(i, 0, 4)]
+    fn loop_unroll() {
         state[i * 4] ^= round_key[round * Nb * 4 + i * Nb];
         state[i * 4 + 1] ^= round_key[round * Nb * 4 + i * Nb + 1];
         state[i * 4 + 2] ^= round_key[round * Nb * 4 + i * Nb + 2];
         state[i * 4 + 3] ^= round_key[round * Nb * 4 + i * Nb + 3];
-        i += 1;
     }
 }
 
@@ -81,10 +80,9 @@ fn add_round_key(state: &mut [u8; 16], round_key: &[u8; 176], round: usize) {
 // state matrix with values in an S-box.
 #[inline(always)]
 fn sub_bytes(state: &mut [u8; 16]) {
-    let mut i: usize = 0;
-    while i < 16 {
+    #[crate::loop_unroll(i, 0, 16)]
+    fn loop_unroll() {
         state[i] = SBOX[state[i] as usize];
-        i += 1;
     }
 }
 
@@ -121,7 +119,8 @@ fn xtime(x: u8) -> u8 {
 // MixColumns function mixes the columns of the state matrix
 #[inline(always)]
 fn mix_columns(state: &mut [u8; 16]) {
-    for i in 0..4 {
+    #[crate::loop_unroll(i, 0, 4)]
+    fn loop_unroll() {
         let t = state[i * 4];
         let tmp = state[i * 4] ^ state[i * 4 + 1] ^ state[i * 4 + 2] ^ state[i * 4 + 3];
         let mut tm = state[i * 4] ^ state[i * 4 + 1];
@@ -152,7 +151,8 @@ fn multiply(x: u8, y: u8) -> u8 {
 // Please use the references to gain more information.
 #[inline(always)]
 fn inv_mix_columns(state: &mut [u8; 16]) {
-    for i in 0..4 {
+    #[crate::loop_unroll(i, 0, 4)]
+    fn loop_unroll() {
         let a = state[i * 4];
         let b = state[i * 4 + 1];
         let c = state[i * 4 + 2];
@@ -169,10 +169,9 @@ fn inv_mix_columns(state: &mut [u8; 16]) {
 // state matrix with values in an S-box.
 #[inline(always)]
 fn inv_sub_bytes(state: &mut [u8; 16]) {
-    let mut i: usize = 0;
-    while i < 16 {
+    #[crate::loop_unroll(i, 0, 16)]
+    fn loop_unroll() {
         state[i] = RSBOX[state[i] as usize];
-        i += 1;
     }
 }
 #[inline(always)]
@@ -201,7 +200,7 @@ fn inv_shift_rows(state: &mut [u8; 16]) {
 #[inline(always)]
 fn cipher_inplace(state: &mut [u8; 16], round_key: &[u8; 176]) {
     add_round_key(state, round_key, 0);
-
+    /*
     let mut i: usize = 1;
     while i < Nr128 {
         sub_bytes(state);
@@ -209,6 +208,15 @@ fn cipher_inplace(state: &mut [u8; 16], round_key: &[u8; 176]) {
         mix_columns(state);
         add_round_key(state, round_key, i);
         i += 1;
+    }
+    */
+
+    #[crate::loop_unroll(i, 1, 9)]
+    fn loop_unroll() {
+        sub_bytes(state);
+        shift_rows(state);
+        mix_columns(state);
+        add_round_key(state, round_key, i);
     }
 
     sub_bytes(state);
@@ -219,18 +227,16 @@ fn cipher_inplace(state: &mut [u8; 16], round_key: &[u8; 176]) {
 #[inline(always)]
 fn cipher(input: &[u8; 16], output: &mut [u8; 16], round_key: &[u8; 176]) {
     let mut state: [u8; 16] = [0; 16];
-    let mut i: usize = 0;
-    while i < 16 {
+    #[crate::loop_unroll(i, 0, 16)]
+    fn loop_unroll() {
         state[i] = input[i];
-        i += 1;
     }
 
     cipher_inplace(&mut state, round_key);
 
-    i = 0;
-    while i < 16 {
+    #[crate::loop_unroll(i, 0, 16)]
+    fn loop_unroll() {
         output[i] = state[i];
-        i += 1;
     }
 }
 
@@ -256,18 +262,16 @@ fn inv_cipher_inplace(state: &mut [u8; 16], round_key: &[u8; 176]) {
 #[inline(always)]
 fn inv_cipher(input: &[u8; 16], output: &mut [u8; 16], round_key: &[u8; 176]) {
     let mut state: [u8; 16] = [0; 16];
-    let mut i: usize = 0;
-    while i < 16 {
+    #[crate::loop_unroll(i, 0, 16)]
+    fn loop_unroll() {
         state[i] = input[i];
-        i += 1;
     }
 
     inv_cipher_inplace(&mut state, round_key);
 
-    i = 0;
-    while i < 16 {
+    #[crate::loop_unroll(i, 0, 16)]
+    fn loop_unroll() {
         output[i] = state[i];
-        i += 1;
     }
 }
 
@@ -370,7 +374,7 @@ const RSBOX: [u8; 256] = [
     0x17, 0x2b, 0x04, 0x7e, 0xba, 0x77, 0xd6, 0x26, 0xe1, 0x69, 0x14, 0x63, 0x55, 0x21, 0x0c, 0x7d
 ];
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct AES128 {
     rkeys: fixslicing::FixsliceKeys128,
     round_key: [u8; 176],

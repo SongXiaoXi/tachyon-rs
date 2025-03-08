@@ -11,10 +11,10 @@ cfg_if::cfg_if! {
     } else if #[cfg(all(any(target_arch = "aarch64", target_arch = "arm"), target_feature = "aes"))] {
         pub use arm::*;
     } else {
-        #[cfg(not(feature = "disable_soft"))]
+        #[cfg(not(feature = "disable_dynamic_export"))]
         pub use dynamic::*;
         #[allow(unused_imports)]
-        #[cfg(feature = "disable_soft")]
+        #[cfg(feature = "disable_dynamic_export")]
         pub(crate) use dynamic::*;
     }
 }

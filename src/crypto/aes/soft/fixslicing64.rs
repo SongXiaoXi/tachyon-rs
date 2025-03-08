@@ -13,7 +13,8 @@ pub(crate) fn aes128_key_schedule(key: &[u8; 16]) -> FixsliceKeys128 {
     bitslice(&mut rkeys[..8], key, key, key, key);
 
     let mut rk_off = 0;
-    for rcon in 0..10 {
+    #[crate::loop_unroll(rcon, 0, 10)]
+    fn loop_unroll() {
         memshift32(&mut rkeys, rk_off);
         rk_off += 8;
 
@@ -50,7 +51,8 @@ pub(crate) fn aes128_key_schedule(key: &[u8; 16]) -> FixsliceKeys128 {
     }
 
     // Account for NOTs removed from sub_bytes
-    for i in 1..11 {
+    #[crate::loop_unroll(i, 1, 10)]
+    fn loop_unroll() {
         sub_bytes_nots(&mut rkeys[(i * 8)..(i * 8 + 8)]);
     }
 
@@ -768,7 +770,8 @@ fn inv_shift_rows_3(state: &mut [u64]) {
 /// different key schedules.
 #[inline]
 fn xor_columns(rkeys: &mut [u64], offset: usize, idx_xor: usize, idx_ror: u32) {
-    for i in 0..8 {
+    #[crate::loop_unroll(i, 0, 8)]
+    fn loop_unroll() {
         let off_i = offset + i;
         let rk = rkeys[off_i - idx_xor] ^ (0x000f000f000f000f & ror(rkeys[off_i], idx_ror));
         rkeys[off_i] = rk
