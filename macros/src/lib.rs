@@ -26,6 +26,15 @@ pub fn loop_unroll(attr: TokenStream, item: TokenStream) -> TokenStream {
     } else {
         panic!("Third argument must be an integer identifier");
     };
+    let loop_step = if attr_iter.len() >= 6 {
+        if let TokenTree::Literal(ident) = attr_iter[6].clone() {
+            ident
+        } else {
+            panic!("Fourth argument must be an integer identifier");
+        }
+    } else {
+        Literal::usize_unsuffixed(1)
+    };
 
     // test if idx_var_name is "_"
     let no_need_idx_var = idx_var_name.to_string() == "_";
@@ -64,11 +73,11 @@ pub fn loop_unroll(attr: TokenStream, item: TokenStream) -> TokenStream {
             output.extend(TokenStream::from(tt));
         }
         if !no_need_idx_var {
-            // output token "idx_var_name" "+=" "1"";"
+            // output token "idx_var_name" "+=" "loop_step"";"
             output.extend(TokenStream::from(TokenTree::Ident(idx_var_name.clone())));
             output.extend(TokenStream::from(TokenTree::Punct(Punct::new('+', Spacing::Joint))));
             output.extend(TokenStream::from(TokenTree::Punct(Punct::new('=', Spacing::Alone))));
-            output.extend(TokenStream::from(TokenTree::Literal(Literal::usize_unsuffixed(1))));
+            output.extend(TokenStream::from(TokenTree::Literal(loop_step.clone())));
             output.extend(TokenStream::from(TokenTree::Punct(Punct::new(';', Spacing::Alone))));
         }
     }
