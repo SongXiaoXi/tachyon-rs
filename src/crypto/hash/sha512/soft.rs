@@ -18,16 +18,7 @@ impl Sha512 {
     #[inline(always)]
     pub const fn new() -> Self {
         Self {
-            state: [
-                0x6a09e667f3bcc908,
-                0xbb67ae8584caa73b,
-                0x3c6ef372fe94f82b,
-                0xa54ff53a5f1d36f1,
-                0x510e527fade682d1,
-                0x9b05688c2b3e6c1f,
-                0x1f83d9abfb41bd6b,
-                0x5be0cd19137e2179,
-            ],
+            state: super::INITIAL_STATE,
             len: 0,
             buffer: [0; 128],
             offset: 0,
@@ -90,6 +81,8 @@ impl Sha512 {
         let plen = plen as usize;
 
         let mut padding: [u8; Self::MAX_PAD_LEN] = [0u8; Self::MAX_PAD_LEN];
+        // Magic: black_box is used to prevent the compiler from using bzero
+        std::hint::black_box(padding.as_mut_ptr());
         padding[0] = 0x80;
 
         let mlen_octets: [u8; Self::MLEN_SIZE] = mlen_bits.to_be_bytes();
@@ -129,23 +122,6 @@ impl Sha512 {
     #[inline(always)]
     fn process_block_with(&mut self, block: &[u8; Self::BLOCK_LEN]) {
         let mut w = [0u64; 80];
-        #[crate::loop_unroll(i, 0, 16)]
-        fn loop_unroll() {
-            w[i] = u64::from_be_bytes(unsafe { *crate::utils::slice_to_array_at(block, i * 8) });
-        }
-        #[crate::loop_unroll(i, 16, 64)]
-        fn loop_unroll() {
-            let s0 = w[i - 15].rotate_right(1)
-                ^ w[i - 15].rotate_right(8)
-                ^ (w[i - 15] >> 7);
-            let s1 = w[i - 2].rotate_right(19)
-                ^ w[i - 2].rotate_right(61)
-                ^ (w[i - 2] >> 6);
-            w[i] = w[i - 16]
-                .wrapping_add(s0)
-                .wrapping_add(w[i - 7])
-                .wrapping_add(s1);
-        }
 
         let mut a = self.state[0];
         let mut b = self.state[1];
@@ -156,28 +132,55 @@ impl Sha512 {
         let mut g = self.state[6];
         let mut h = self.state[7];
 
-        crate::const_loop!(i, 0, 80, {
-            let s0 = a.rotate_right(28) ^ a.rotate_right(34) ^ a.rotate_right(39);
-            let maj = (a & b) ^ (a & c) ^ (b & c);
-            let t2 = s0.wrapping_add(maj);
-            let s1 = e.rotate_right(14) ^ e.rotate_right(18) ^ e.rotate_right(41);
-            let ch = (e & f) ^ ((!e) & g);
-            let t1 = h
-                .wrapping_add(s1)
-                .wrapping_add(ch)
-                .wrapping_add(super::K[i])
-                .wrapping_add(w[i]);
+        static _K: [u64; 80] = super::K;
+        #[allow(non_snake_case)]
+        let mut K = _K.as_ptr();
+        // Magic: black_box is used to prevent the compiler from using load immediate instructions
+        std::hint::black_box(&mut K);
 
-            h = g;
-            g = f;
-            f = e;
-            e = d.wrapping_add(t1);
-            d = c;
-            c = b;
-            b = a;
-            a = t1.wrapping_add(t2);
+        macro_rules! sha512_round {
+            ($i:expr) => {
+                let s0 = a.rotate_right(28) ^ a.rotate_right(34) ^ a.rotate_right(39);
+                let s1 = e.rotate_right(14) ^ e.rotate_right(18) ^ e.rotate_right(41);
+                let maj = (a & b) ^ (a & c) ^ (b & c);
+                let ch = (e & f) ^ ((!e) & g);
+                let t2 = s0.wrapping_add(maj);
+                let t1 = h
+                    .wrapping_add(s1)
+                    .wrapping_add(ch)
+                    .wrapping_add(unsafe { *K.add($i) })
+                    .wrapping_add(w[$i]);
+
+                h = g;
+                g = f;
+                f = e;
+                e = d.wrapping_add(t1);
+                d = c;
+                c = b;
+                b = a;
+                a = t1.wrapping_add(t2);
+            };
+        }
+
+        crate::const_loop!(i, 0, 16, {
+            w[i] = u64::from_be_bytes(unsafe { *crate::utils::slice_to_array_at(block, i * 8) });
+            sha512_round!(i);
         });
-        
+
+        crate::const_loop!(i, 16, 64, {
+            let s0 = w[i - 15].rotate_right(1)
+                ^ w[i - 15].rotate_right(8)
+                ^ (w[i - 15] >> 7);
+            let s1 = w[i - 2].rotate_right(19)
+                ^ w[i - 2].rotate_right(61)
+                ^ (w[i - 2] >> 6);
+            w[i] = w[i - 16]
+                .wrapping_add(s0)
+                .wrapping_add(w[i - 7])
+                .wrapping_add(s1);
+
+            sha512_round!(i);
+        });
 
         self.state[0] = self.state[0].wrapping_add(a);
         self.state[1] = self.state[1].wrapping_add(b);
