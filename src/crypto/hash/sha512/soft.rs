@@ -6,14 +6,20 @@ pub struct Sha512 {
     offset: usize,
 }
 
-impl Sha512 {
-    pub const BLOCK_LEN: usize = 128;
-    pub const DIGEST_LEN: usize = 64;
+macro_rules! sha512_define_const {
+    () => {
+        pub const BLOCK_LEN: usize = 128;
+        pub const DIGEST_LEN: usize = 64;
+    
+        const BLOCK_LEN_BITS: u128 = Self::BLOCK_LEN as u128 * 8;
+        const MLEN_SIZE: usize = core::mem::size_of::<u128>();
+        const MLEN_SIZE_BITS: u128 = Self::MLEN_SIZE as u128 * 8;
+        const MAX_PAD_LEN: usize = Self::BLOCK_LEN + Self::MLEN_SIZE as usize;
+    };
+}
 
-    const BLOCK_LEN_BITS: u128 = Self::BLOCK_LEN as u128 * 8;
-    const MLEN_SIZE: usize = core::mem::size_of::<u128>();
-    const MLEN_SIZE_BITS: u128 = Self::MLEN_SIZE as u128 * 8;
-    const MAX_PAD_LEN: usize = Self::BLOCK_LEN + Self::MLEN_SIZE as usize;
+impl Sha512 {
+    sha512_define_const!();
 
     #[inline(always)]
     pub const fn new() -> Self {
