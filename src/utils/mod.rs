@@ -1,4 +1,6 @@
 pub(crate) mod xor;
+mod cpu_name;
+pub use cpu_name::cpu_name;
 
 #[cfg(feature = "variable_time_eq")]
 #[inline(always)]
@@ -7,7 +9,7 @@ pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 }
 #[cfg(not(feature = "variable_time_eq"))]
 #[inline(always)]
-pub fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
     }
@@ -20,6 +22,25 @@ pub fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 
     x == 0
 }
+
+#[cfg(feature = "variable_time_eq")]
+#[inline(always)]
+pub(crate) fn constant_time_is_zero(a: &[u8]) -> bool {
+    a.iter().all(|&x| x == 0)
+}
+
+#[cfg(not(feature = "variable_time_eq"))]
+#[inline(always)]
+pub(crate) fn constant_time_is_zero(a: &[u8]) -> bool {
+    let mut x = 0u8;
+
+    for i in 0..a.len() {
+        x |= a[i];
+    }
+
+    x == 0
+}
+
 // detect hardware features everytimes
 #[macro_export]
 macro_rules! is_hw_feature_detected {
@@ -230,19 +251,19 @@ macro_rules! is_hw_feature_available {
     };
 }
 #[inline(always)]
-pub(crate) unsafe fn slice_to_array<T, const N: usize>(slice: &[T]) -> &[T; N] {
+pub(crate) const unsafe fn slice_to_array<T, const N: usize>(slice: &[T]) -> &[T; N] {
     &*(slice.as_ptr() as *const [T; N])
 }
 #[inline(always)]
-pub(crate) unsafe fn slice_to_array_mut<T, const N: usize>(slice: &mut [T]) -> &mut [T; N] {
+pub(crate) const unsafe fn slice_to_array_mut<T, const N: usize>(slice: &mut [T]) -> &mut [T; N] {
     &mut *(slice.as_mut_ptr() as *mut [T; N])
 }
 #[inline(always)]
-pub(crate) unsafe fn slice_to_array_at<T, const N: usize>(slice: &[T], index: usize) -> &[T; N] {
+pub(crate) const unsafe fn slice_to_array_at<T, const N: usize>(slice: &[T], index: usize) -> &[T; N] {
     &*(slice.as_ptr().add(index) as *const [T; N])
 }
 #[inline(always)]
-pub(crate) unsafe fn slice_to_array_at_mut<T, const N: usize>(slice: &mut [T], index: usize) -> &mut [T; N] {
+pub(crate) const unsafe fn slice_to_array_at_mut<T, const N: usize>(slice: &mut [T], index: usize) -> &mut [T; N] {
     &mut *(slice.as_mut_ptr().add(index) as *mut [T; N])
 }
 
