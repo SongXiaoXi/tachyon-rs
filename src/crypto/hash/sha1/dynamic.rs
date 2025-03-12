@@ -16,13 +16,7 @@ pub union Sha1 {
 static mut IDX: u32 = u32::MAX; // 0: soft, 1: x86/arm
 
 impl Sha1 {
-    pub const BLOCK_LEN: usize = 64;
-    pub const DIGEST_LEN: usize = 20;
-
-    const BLOCK_LEN_BITS: u64 = Self::BLOCK_LEN as u64 * 8;
-    const MLEN_SIZE: usize = core::mem::size_of::<u64>();
-    const MLEN_SIZE_BITS: u64 = Self::MLEN_SIZE as u64 * 8;
-    const MAX_PAD_LEN: usize = Self::BLOCK_LEN + Self::MLEN_SIZE as usize;
+    sha1_define_const!();
 
     #[inline(always)]
     pub fn new() -> Self {

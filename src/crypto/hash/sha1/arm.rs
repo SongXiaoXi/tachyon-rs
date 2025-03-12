@@ -12,7 +12,6 @@ pub struct Sha1 {
     offset: usize,
 }
 
-#[unsafe_target_feature("neon,sha2")]
 impl Sha1 {
     pub const BLOCK_LEN: usize = 64;
     pub const DIGEST_LEN: usize = 20;
@@ -23,20 +22,18 @@ impl Sha1 {
     const MAX_PAD_LEN: usize = Self::BLOCK_LEN + Self::MLEN_SIZE as usize;
 
     #[inline(always)]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
-            state: [
-                0x67452301,
-                0xefcdab89,
-                0x98badcfe,
-                0x10325476,
-                0xc3d2e1f0,
-            ],
+            state: super::INITIAL_STATE,
             len: 0,
             buffer: [0; 64],
             offset: 0,
         }
     }
+}
+
+#[unsafe_target_feature("neon,sha2")]
+impl Sha1 {
     #[inline]
     pub fn update(&mut self, data: &[u8]) {
         let mut i = 0usize;
@@ -63,7 +60,10 @@ impl Sha1 {
 
         if i < data.len() {
             let remain = data.len() - i;
-            self.buffer[..remain].copy_from_slice(&data[i..]);
+            // SAFETY: remain is less than BLOCK_LEN
+            unsafe {
+                self.buffer.get_unchecked_mut(..remain).copy_from_slice(&data[i..]);
+            }
             self.offset = remain;
         }
     }
@@ -90,6 +90,8 @@ impl Sha1 {
         let plen = plen as usize;
 
         let mut padding: [u8; Self::MAX_PAD_LEN] = [0u8; Self::MAX_PAD_LEN];
+        // Magic: black_box is used to prevent the compiler from using bzero
+        std::hint::black_box(padding.as_mut_ptr());
         padding[0] = 0x80;
 
         let mlen_octets: [u8; Self::MLEN_SIZE] = mlen_bits.to_be_bytes();
@@ -145,7 +147,6 @@ impl Sha1 {
         msg0 = vsha1su0q_u32(msg0, msg1, msg2);
 
         // Rounds 4-7
-        
         e0 = vsha1h_u32(vgetq_lane_u32(abcd, 0));
         abcd = vsha1cq_u32(abcd, e1, tmp1);
         tmp1 = vaddq_u32(msg3, vdupq_n_u32(0x5a827999));
@@ -283,7 +284,7 @@ impl Sha1 {
 
 
 #[cfg(test)]
-mod tests {
+mod test {
     use super::*;
 
     #[cfg(target_arch = "arm")]
@@ -296,34 +297,6 @@ mod tests {
         if !is_target_feature_detected!("neon") || !is_target_feature_detected!("sha2") {
             return;
         }
-        let mut sha1 = Sha1::new();
-        let zero_x64 = [0u8; 0];
-        sha1.update(&zero_x64);
-        let digest = sha1.finalize();
-        assert_eq!(digest, [
-            0xda, 0x39, 0xa3, 0xee, 0x5e,
-            0x6b, 0x4b, 0x0d, 0x32, 0x55,
-            0xbf, 0xef, 0x95, 0x60, 0x18,
-            0x90, 0xaf, 0xd8, 0x07, 0x09,
-        ]);
-        let mut sha1 = Sha1::new();
-        sha1.update(b"abc");
-        let digest = sha1.finalize();
-        assert_eq!(digest, [
-            0xa9, 0x99, 0x3e, 0x36, 0x47,
-            0x06, 0x81, 0x6a, 0xba, 0x3e,
-            0x25, 0x71, 0x78, 0x50, 0xc2,
-            0x6c, 0x9c, 0xd0, 0xd8, 0x9d,
-        ]);
-
-        let mut sha1 = Sha1::new();
-        sha1.update(b"abcdefghijklmnopqrstuvwxyz");
-        let digest = sha1.finalize();
-        assert_eq!(digest, [
-            0x32, 0xd1, 0x0c, 0x7b, 0x8c,
-            0xf9, 0x65, 0x70, 0xca, 0x04,
-            0xce, 0x37, 0xf2, 0xa1, 0x9d,
-            0x84, 0x24, 0x0d, 0x3a, 0x89,
-        ]);
+        sha1_test_case!();
     }
 }
