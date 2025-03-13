@@ -104,27 +104,13 @@ fn load_key_128(k: &mut [uint8x16_t; 20], key: &[u8; 16]) {
 
             let ptr = ek.as_ptr();
 
-            k[0] = vreinterpretq_u8_u32(vld1q_u32(ptr.add(0)));
-            k[1] = vreinterpretq_u8_u32(vld1q_u32(ptr.add(4)));
-            k[2] = vreinterpretq_u8_u32(vld1q_u32(ptr.add(8)));
-            k[3] = vreinterpretq_u8_u32(vld1q_u32(ptr.add(12)));
-            k[4] = vreinterpretq_u8_u32(vld1q_u32(ptr.add(16)));
-            k[5] = vreinterpretq_u8_u32(vld1q_u32(ptr.add(20)));
-            k[6] = vreinterpretq_u8_u32(vld1q_u32(ptr.add(24)));
-            k[7] = vreinterpretq_u8_u32(vld1q_u32(ptr.add(28)));
-            k[8] = vreinterpretq_u8_u32(vld1q_u32(ptr.add(32)));
-            k[9] = vreinterpretq_u8_u32(vld1q_u32(ptr.add(36)));
-            k[10] = vreinterpretq_u8_u32(vld1q_u32(ptr.add(40)));
+        crate::const_loop!(i, 0, 11, {
+            k[i] = vreinterpretq_u8_u32(vld1q_u32(ptr.add(i * 4)));
+        });
 
-            k[11] = vaesimcq_u8(k[9]);
-            k[12] = vaesimcq_u8(k[8]);
-            k[13] = vaesimcq_u8(k[7]);
-            k[14] = vaesimcq_u8(k[6]);
-            k[15] = vaesimcq_u8(k[5]);
-            k[16] = vaesimcq_u8(k[4]);
-            k[17] = vaesimcq_u8(k[3]);
-            k[18] = vaesimcq_u8(k[2]);
-            k[19] = vaesimcq_u8(k[1]);
+        crate::const_loop!(i, 11, 9, {
+            k[i] = vaesimcq_u8(k[20 - i]);
+        });
     }
 }
 
@@ -132,15 +118,9 @@ macro_rules! DO_ENC_BLOCK {
     ($block:expr, $key:expr) => {
         unsafe {
             $block = vaeseq_u8($block, $key[0]);
-            $block = vaeseq_u8(vaesmcq_u8($block), $key[1]);
-            $block = vaeseq_u8(vaesmcq_u8($block), $key[2]);
-            $block = vaeseq_u8(vaesmcq_u8($block), $key[3]);
-            $block = vaeseq_u8(vaesmcq_u8($block), $key[4]);
-            $block = vaeseq_u8(vaesmcq_u8($block), $key[5]);
-            $block = vaeseq_u8(vaesmcq_u8($block), $key[6]);
-            $block = vaeseq_u8(vaesmcq_u8($block), $key[7]);
-            $block = vaeseq_u8(vaesmcq_u8($block), $key[8]);
-            $block = vaeseq_u8(vaesmcq_u8($block), $key[9]);
+            crate::const_loop!(i, 1, 9, {
+                $block = vaeseq_u8(vaesmcq_u8($block), $key[i]);
+            });
             $block = veorq_u8($block, $key[10]);
         }
     };
@@ -149,24 +129,10 @@ macro_rules! DO_ENC_BLOCK {
 macro_rules! DO_DEC_BLOCK {
     ($block:expr, $key:expr) => {
         unsafe {
-            $block = vaesdq_u8($block, $key[10]);
-            $block = vaesimcq_u8($block);
-            $block = vaesdq_u8($block, $key[11]);
-            $block = vaesimcq_u8($block);
-            $block = vaesdq_u8($block, $key[12]);
-            $block = vaesimcq_u8($block);
-            $block = vaesdq_u8($block, $key[13]);
-            $block = vaesimcq_u8($block);
-            $block = vaesdq_u8($block, $key[14]);
-            $block = vaesimcq_u8($block);
-            $block = vaesdq_u8($block, $key[15]);
-            $block = vaesimcq_u8($block);
-            $block = vaesdq_u8($block, $key[16]);
-            $block = vaesimcq_u8($block);
-            $block = vaesdq_u8($block, $key[17]);
-            $block = vaesimcq_u8($block);
-            $block = vaesdq_u8($block, $key[18]);
-            $block = vaesimcq_u8($block);
+            crate::const_loop!(i, 10, 9, {
+                $block = vaesdq_u8($block, $key[i]);
+                $block = vaesimcq_u8($block);
+            });
             $block = vaesdq_u8($block, $key[19]);
             $block = veorq_u8($block, $key[0]);
         }
@@ -178,7 +144,6 @@ pub struct AES128 {
     key_schedule: [uint8x16_t; 20],
 }
 
-#[unsafe_target_feature("aes,neon")]
 impl AES128 {
     pub const BLOCK_LEN: usize = 16;
     pub const KEY_LEN: usize = 16;
@@ -194,7 +159,10 @@ impl AES128 {
         assert_eq!(key.len(), 16);
         Self::new(unsafe { *(key.as_ptr() as *const [u8; 16]) })
     }
+}
 
+#[unsafe_target_feature("aes,neon")]
+impl AES128 {
     #[inline(always)]
     pub fn encrypt(&self, data: &mut [u8; 16]) {
         let mut block = unsafe { vld1q_u8(data.as_ptr()) };
@@ -254,42 +222,14 @@ impl AES128 {
             block1 = vaeseq_u8(block1, self.key_schedule[0]);
             block2 = vaeseq_u8(block2, self.key_schedule[0]);
             block3 = vaeseq_u8(block3, self.key_schedule[0]);
-            block0 = vaeseq_u8(vaesmcq_u8(block0), self.key_schedule[1]);
-            block1 = vaeseq_u8(vaesmcq_u8(block1), self.key_schedule[1]);
-            block2 = vaeseq_u8(vaesmcq_u8(block2), self.key_schedule[1]);
-            block3 = vaeseq_u8(vaesmcq_u8(block3), self.key_schedule[1]);
-            block0 = vaeseq_u8(vaesmcq_u8(block0), self.key_schedule[2]);
-            block1 = vaeseq_u8(vaesmcq_u8(block1), self.key_schedule[2]);
-            block2 = vaeseq_u8(vaesmcq_u8(block2), self.key_schedule[2]);
-            block3 = vaeseq_u8(vaesmcq_u8(block3), self.key_schedule[2]);
-            block0 = vaeseq_u8(vaesmcq_u8(block0), self.key_schedule[3]);
-            block1 = vaeseq_u8(vaesmcq_u8(block1), self.key_schedule[3]);
-            block2 = vaeseq_u8(vaesmcq_u8(block2), self.key_schedule[3]);
-            block3 = vaeseq_u8(vaesmcq_u8(block3), self.key_schedule[3]);
-            block0 = vaeseq_u8(vaesmcq_u8(block0), self.key_schedule[4]);
-            block1 = vaeseq_u8(vaesmcq_u8(block1), self.key_schedule[4]);
-            block2 = vaeseq_u8(vaesmcq_u8(block2), self.key_schedule[4]);
-            block3 = vaeseq_u8(vaesmcq_u8(block3), self.key_schedule[4]);
-            block0 = vaeseq_u8(vaesmcq_u8(block0), self.key_schedule[5]);
-            block1 = vaeseq_u8(vaesmcq_u8(block1), self.key_schedule[5]);
-            block2 = vaeseq_u8(vaesmcq_u8(block2), self.key_schedule[5]);
-            block3 = vaeseq_u8(vaesmcq_u8(block3), self.key_schedule[5]);
-            block0 = vaeseq_u8(vaesmcq_u8(block0), self.key_schedule[6]);
-            block1 = vaeseq_u8(vaesmcq_u8(block1), self.key_schedule[6]);
-            block2 = vaeseq_u8(vaesmcq_u8(block2), self.key_schedule[6]);
-            block3 = vaeseq_u8(vaesmcq_u8(block3), self.key_schedule[6]);
-            block0 = vaeseq_u8(vaesmcq_u8(block0), self.key_schedule[7]);
-            block1 = vaeseq_u8(vaesmcq_u8(block1), self.key_schedule[7]);
-            block2 = vaeseq_u8(vaesmcq_u8(block2), self.key_schedule[7]);
-            block3 = vaeseq_u8(vaesmcq_u8(block3), self.key_schedule[7]);
-            block0 = vaeseq_u8(vaesmcq_u8(block0), self.key_schedule[8]);
-            block1 = vaeseq_u8(vaesmcq_u8(block1), self.key_schedule[8]);
-            block2 = vaeseq_u8(vaesmcq_u8(block2), self.key_schedule[8]);
-            block3 = vaeseq_u8(vaesmcq_u8(block3), self.key_schedule[8]);
-            block0 = vaeseq_u8(vaesmcq_u8(block0), self.key_schedule[9]);
-            block1 = vaeseq_u8(vaesmcq_u8(block1), self.key_schedule[9]);
-            block2 = vaeseq_u8(vaesmcq_u8(block2), self.key_schedule[9]);
-            block3 = vaeseq_u8(vaesmcq_u8(block3), self.key_schedule[9]);
+
+            crate::const_loop!(i, 1, 9, {
+                block0 = vaeseq_u8(vaesmcq_u8(block0), self.key_schedule[i]);
+                block1 = vaeseq_u8(vaesmcq_u8(block1), self.key_schedule[i]);
+                block2 = vaeseq_u8(vaesmcq_u8(block2), self.key_schedule[i]);
+                block3 = vaeseq_u8(vaesmcq_u8(block3), self.key_schedule[i]);
+            });
+
             block0 = veorq_u8(block0, self.key_schedule[10]);
             block1 = veorq_u8(block1, self.key_schedule[10]);
             block2 = veorq_u8(block2, self.key_schedule[10]);
@@ -310,78 +250,17 @@ impl AES128 {
         let mut block3 = unsafe { vld1q_u8(data3.as_ptr()) };
 
         unsafe {
-            block0 = vaesdq_u8(block0, self.key_schedule[10]);
-            block1 = vaesdq_u8(block1, self.key_schedule[10]);
-            block2 = vaesdq_u8(block2, self.key_schedule[10]);
-            block3 = vaesdq_u8(block3, self.key_schedule[10]);
-            block0 = vaesimcq_u8(block0);
-            block1 = vaesimcq_u8(block1);
-            block2 = vaesimcq_u8(block2);
-            block3 = vaesimcq_u8(block3);
-            block0 = vaesdq_u8(block0, self.key_schedule[11]);
-            block1 = vaesdq_u8(block1, self.key_schedule[11]);
-            block2 = vaesdq_u8(block2, self.key_schedule[11]);
-            block3 = vaesdq_u8(block3, self.key_schedule[11]);
-            block0 = vaesimcq_u8(block0);
-            block1 = vaesimcq_u8(block1);
-            block2 = vaesimcq_u8(block2);
-            block3 = vaesimcq_u8(block3);
-            block0 = vaesdq_u8(block0, self.key_schedule[12]);
-            block1 = vaesdq_u8(block1, self.key_schedule[12]);
-            block2 = vaesdq_u8(block2, self.key_schedule[12]);
-            block3 = vaesdq_u8(block3, self.key_schedule[12]);
-            block0 = vaesimcq_u8(block0);
-            block1 = vaesimcq_u8(block1);
-            block2 = vaesimcq_u8(block2);
-            block3 = vaesimcq_u8(block3);
-            block0 = vaesdq_u8(block0, self.key_schedule[13]);
-            block1 = vaesdq_u8(block1, self.key_schedule[13]);
-            block2 = vaesdq_u8(block2, self.key_schedule[13]);
-            block3 = vaesdq_u8(block3, self.key_schedule[13]);
-            block0 = vaesimcq_u8(block0);
-            block1 = vaesimcq_u8(block1);
-            block2 = vaesimcq_u8(block2);
-            block3 = vaesimcq_u8(block3);
-            block0 = vaesdq_u8(block0, self.key_schedule[14]);
-            block1 = vaesdq_u8(block1, self.key_schedule[14]);
-            block2 = vaesdq_u8(block2, self.key_schedule[14]);
-            block3 = vaesdq_u8(block3, self.key_schedule[14]);
-            block0 = vaesimcq_u8(block0);
-            block1 = vaesimcq_u8(block1);
-            block2 = vaesimcq_u8(block2);
-            block3 = vaesimcq_u8(block3);
-            block0 = vaesdq_u8(block0, self.key_schedule[15]);
-            block1 = vaesdq_u8(block1, self.key_schedule[15]);
-            block2 = vaesdq_u8(block2, self.key_schedule[15]);
-            block3 = vaesdq_u8(block3, self.key_schedule[15]);
-            block0 = vaesimcq_u8(block0);
-            block1 = vaesimcq_u8(block1);
-            block2 = vaesimcq_u8(block2);
-            block3 = vaesimcq_u8(block3);
-            block0 = vaesdq_u8(block0, self.key_schedule[16]);
-            block1 = vaesdq_u8(block1, self.key_schedule[16]);
-            block2 = vaesdq_u8(block2, self.key_schedule[16]);
-            block3 = vaesdq_u8(block3, self.key_schedule[16]);
-            block0 = vaesimcq_u8(block0);
-            block1 = vaesimcq_u8(block1);
-            block2 = vaesimcq_u8(block2);
-            block3 = vaesimcq_u8(block3);
-            block0 = vaesdq_u8(block0, self.key_schedule[17]);
-            block1 = vaesdq_u8(block1, self.key_schedule[17]);
-            block2 = vaesdq_u8(block2, self.key_schedule[17]);
-            block3 = vaesdq_u8(block3, self.key_schedule[17]);
-            block0 = vaesimcq_u8(block0);
-            block1 = vaesimcq_u8(block1);
-            block2 = vaesimcq_u8(block2);
-            block3 = vaesimcq_u8(block3);
-            block0 = vaesdq_u8(block0, self.key_schedule[18]);
-            block1 = vaesdq_u8(block1, self.key_schedule[18]);
-            block2 = vaesdq_u8(block2, self.key_schedule[18]);
-            block3 = vaesdq_u8(block3, self.key_schedule[18]);
-            block0 = vaesimcq_u8(block0);
-            block1 = vaesimcq_u8(block1);
-            block2 = vaesimcq_u8(block2);
-            block3 = vaesimcq_u8(block3);
+            crate::const_loop!(i, 10, 9, {
+                block0 = vaesdq_u8(block0, self.key_schedule[i]);
+                block1 = vaesdq_u8(block1, self.key_schedule[i]);
+                block2 = vaesdq_u8(block2, self.key_schedule[i]);
+                block3 = vaesdq_u8(block3, self.key_schedule[i]);
+                block0 = vaesimcq_u8(block0);
+                block1 = vaesimcq_u8(block1);
+                block2 = vaesimcq_u8(block2);
+                block3 = vaesimcq_u8(block3);
+            });
+
             block0 = vaesdq_u8(block0, self.key_schedule[19]);
             block1 = vaesdq_u8(block1, self.key_schedule[19]);
             block2 = vaesdq_u8(block2, self.key_schedule[19]);

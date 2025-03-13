@@ -45,15 +45,9 @@ fn load_key_128(key_schedule: &mut [__m128i; 20], key: &[u8; 16]) {
         key_schedule[9] = key_exp_128::<0x1b>(key_schedule[8]);
         key_schedule[10] = key_exp_128::<0x36>(key_schedule[9]);
 
-        key_schedule[11] = _mm_aesimc_si128(key_schedule[9]);
-        key_schedule[12] = _mm_aesimc_si128(key_schedule[8]);
-        key_schedule[13] = _mm_aesimc_si128(key_schedule[7]);
-        key_schedule[14] = _mm_aesimc_si128(key_schedule[6]);
-        key_schedule[15] = _mm_aesimc_si128(key_schedule[5]);
-        key_schedule[16] = _mm_aesimc_si128(key_schedule[4]);
-        key_schedule[17] = _mm_aesimc_si128(key_schedule[3]);
-        key_schedule[18] = _mm_aesimc_si128(key_schedule[2]);
-        key_schedule[19] = _mm_aesimc_si128(key_schedule[1]);
+        crate::const_loop!(i, 1, 9, {
+            key_schedule[10 + i] = _mm_aesimc_si128(key_schedule[10 - i]);
+        });
     }
 }
 
@@ -61,15 +55,9 @@ macro_rules! DO_ENC_BLOCK {
     ($block:expr, $key:expr) => {
         unsafe {
             $block = _mm_xor_si128($block, $key[0]);
-            $block = _mm_aesenc_si128($block, $key[1]);
-            $block = _mm_aesenc_si128($block, $key[2]);
-            $block = _mm_aesenc_si128($block, $key[3]);
-            $block = _mm_aesenc_si128($block, $key[4]);
-            $block = _mm_aesenc_si128($block, $key[5]);
-            $block = _mm_aesenc_si128($block, $key[6]);
-            $block = _mm_aesenc_si128($block, $key[7]);
-            $block = _mm_aesenc_si128($block, $key[8]);
-            $block = _mm_aesenc_si128($block, $key[9]);
+            crate::const_loop!(i, 1, 9, {
+                $block = _mm_aesenc_si128($block, $key[i]);
+            });
             $block = _mm_aesenclast_si128($block, $key[10]);
         }
     };
@@ -79,15 +67,9 @@ macro_rules! DO_DEC_BLOCK {
     ($block:expr, $key:expr) => {
         unsafe {
             $block = _mm_xor_si128($block, $key[10]);
-            $block = _mm_aesdec_si128($block, $key[11]);
-            $block = _mm_aesdec_si128($block, $key[12]);
-            $block = _mm_aesdec_si128($block, $key[13]);
-            $block = _mm_aesdec_si128($block, $key[14]);
-            $block = _mm_aesdec_si128($block, $key[15]);
-            $block = _mm_aesdec_si128($block, $key[16]);
-            $block = _mm_aesdec_si128($block, $key[17]);
-            $block = _mm_aesdec_si128($block, $key[18]);
-            $block = _mm_aesdec_si128($block, $key[19]);
+            crate::const_loop!(i, 1, 9, {
+                $block = _mm_aesdec_si128($block, $key[10 + i]);
+            });
             $block = _mm_aesdeclast_si128($block, $key[0]);
         }
     };
@@ -98,7 +80,6 @@ pub struct AES128 {
     key_schedule: [__m128i; 20],
 }
 
-#[unsafe_target_feature("aes")]
 impl AES128 {
     pub const BLOCK_LEN: usize = 16;
     pub const KEY_LEN: usize = 16;
@@ -114,7 +95,10 @@ impl AES128 {
         assert_eq!(key.len(), 16);
         Self::new(unsafe { *(key.as_ptr() as *const [u8; 16]) })
     }
+}
 
+#[unsafe_target_feature("aes")]
+impl AES128 {
     #[inline(always)]
     pub fn encrypt(&self, data: &mut [u8; 16]) {
         let mut block = unsafe { _mm_loadu_si128(data.as_ptr() as *const __m128i) };
