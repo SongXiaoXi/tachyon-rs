@@ -7,7 +7,6 @@ pub struct $name {
     pub(crate) initial_state: [u32; 16],
 }
 
-$(#[unsafe_target_feature::unsafe_target_feature($feature)])?
 impl $name {
     pub const KEY_LEN: usize = 32;
     pub const BLOCK_LEN: usize = 64;
@@ -61,22 +60,9 @@ impl $name {
         diagonal_rounds(&mut state);
         add_si512(&mut state, initial_state);
 
-        keystream[0..4].copy_from_slice(&state[0].to_le_bytes());
-        keystream[4..8].copy_from_slice(&state[1].to_le_bytes());
-        keystream[8..12].copy_from_slice(&state[2].to_le_bytes());
-        keystream[12..16].copy_from_slice(&state[3].to_le_bytes());
-        keystream[16..20].copy_from_slice(&state[4].to_le_bytes());
-        keystream[20..24].copy_from_slice(&state[5].to_le_bytes());
-        keystream[24..28].copy_from_slice(&state[6].to_le_bytes());
-        keystream[28..32].copy_from_slice(&state[7].to_le_bytes());
-        keystream[32..36].copy_from_slice(&state[8].to_le_bytes());
-        keystream[36..40].copy_from_slice(&state[9].to_le_bytes());
-        keystream[40..44].copy_from_slice(&state[10].to_le_bytes());
-        keystream[44..48].copy_from_slice(&state[11].to_le_bytes());
-        keystream[48..52].copy_from_slice(&state[12].to_le_bytes());
-        keystream[52..56].copy_from_slice(&state[13].to_le_bytes());
-        keystream[56..60].copy_from_slice(&state[14].to_le_bytes());
-        keystream[60..64].copy_from_slice(&state[15].to_le_bytes());
+        crate::const_loop!(i, 0, 16, {
+            keystream[i * 4..i * 4 + 4].copy_from_slice(&state[i].to_le_bytes());
+        });
     }
 
     #[inline(always)]
@@ -95,7 +81,7 @@ impl $name {
         cfg_if::cfg_if! {
         if #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] {
             unsafe {
-                let state = [
+                let mut state = [
                     _mm_set1_epi32(initial_state[0] as _),
                     _mm_set1_epi32(initial_state[1] as _),
                     _mm_set1_epi32(initial_state[2] as _),
@@ -113,11 +99,11 @@ impl $name {
                     _mm_set1_epi32(initial_state[14] as _),
                     _mm_set1_epi32(initial_state[15] as _),
                 ];
-                // state[12] = _mm_add_epi32(state[12], _mm_set_epi32(3, 2, 1, 0));
+                state[12] = _mm_add_epi32(state[12], _mm_set_epi32(3, 2, 1, 0));
                 let res = rounds_vertical(&state);
-                // state[12] = _mm_add_epi32(state[12], _mm_set1_epi32(PARALLEL_BLOCKS as _));
                
-                for block in 0..4 {
+                #[crate::loop_unroll(block, 0, 4)]
+                fn loop_unroll() {
                     let block = &res[block];
                     let block00 = _mm_loadu_si128(plaintext_or_ciphertext.as_ptr().add(start) as _);
                     let block01 = _mm_loadu_si128(plaintext_or_ciphertext.as_ptr().add(start + 16) as _);
@@ -137,7 +123,7 @@ impl $name {
         else if #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
         {
             unsafe {
-                let state = [
+                let mut state = [
                     vdupq_n_u32(initial_state[0]),
                     vdupq_n_u32(initial_state[1]),
                     vdupq_n_u32(initial_state[2]),
@@ -155,10 +141,12 @@ impl $name {
                     vdupq_n_u32(initial_state[14]),
                     vdupq_n_u32(initial_state[15]),
                 ];
+                state[12] = vaddq_u32(state[12], vld1q_u32([0, 1, 2, 3].as_ptr()));
 
                 let res = rounds_vertical(&state);
 
-                for i in 0..PARALLEL_BLOCKS {
+                #[crate::loop_unroll(i, 0, 4)]
+                fn loop_unroll() {
                     let block = &res[i];
                     let mut block00 = vld1q_u32(plaintext_or_ciphertext.as_ptr().add(start) as _);
                     let mut block01 = vld1q_u32(plaintext_or_ciphertext.as_ptr().add(start + 16) as _);
@@ -192,7 +180,8 @@ impl $name {
                 let res = rounds(&initial_state_neon);
                 initial_state_neon[3] = vaddq_u32(initial_state_neon[3], vld1q_u32([PARALLEL_BLOCKS as u32, 0, 0, 0].as_ptr()));
 
-                for i in 0..PARALLEL_BLOCKS {
+                #[crate::loop_unroll(i, 0, 4)]
+                fn loop_unroll() {
                     let block = &res[i];
                     let mut block00 = vld1q_u32(plaintext_or_ciphertext.as_ptr().add(start) as _);
                     let mut block01 = vld1q_u32(plaintext_or_ciphertext.as_ptr().add(start + 16) as _);
@@ -214,36 +203,22 @@ impl $name {
             }
         } else {
 
-            let mut keystream = [0u8; Self::BLOCK_LEN];
-            let plaintext = unsafe { crate::utils::slice_to_array_at_mut(plaintext_or_ciphertext, start) };
-            Self::block_op(&mut initial_state, &mut keystream);
-            initial_state[12] = initial_state[12].wrapping_add(1);
-            v512_i8_xor(plaintext, &keystream);
-            start += Self::BLOCK_LEN;
-
-            let mut keystream = [0u8; Self::BLOCK_LEN];
-            let plaintext = unsafe { crate::utils::slice_to_array_at_mut(plaintext_or_ciphertext, start) };
-            Self::block_op(&mut initial_state, &mut keystream);
-            initial_state[12] = initial_state[12].wrapping_add(1);
-            v512_i8_xor(plaintext, &keystream);
-            start += Self::BLOCK_LEN;
-
-            let mut keystream = [0u8; Self::BLOCK_LEN];
-            let plaintext = unsafe { crate::utils::slice_to_array_at_mut(plaintext_or_ciphertext, start) };
-            Self::block_op(&mut initial_state, &mut keystream);
-            initial_state[12] = initial_state[12].wrapping_add(1);
-            v512_i8_xor(plaintext, &keystream);
-            start += Self::BLOCK_LEN;
-
-            let mut keystream = [0u8; Self::BLOCK_LEN];
-            let plaintext = unsafe { crate::utils::slice_to_array_at_mut(plaintext_or_ciphertext, start) };
-            Self::block_op(&mut initial_state, &mut keystream);
-            initial_state[12] = initial_state[12].wrapping_add(1);
-            v512_i8_xor(plaintext, &keystream);
+            crate::const_loop!(_, 0, 4 {
+                let mut keystream = [0u8; Self::BLOCK_LEN];
+                let plaintext = unsafe { crate::utils::slice_to_array_at_mut(plaintext_or_ciphertext, start) };
+                Self::block_op(&mut initial_state, &mut keystream);
+                initial_state[12] = initial_state[12].wrapping_add(1);
+                v512_i8_xor(plaintext, &keystream);
+                start += Self::BLOCK_LEN;
+            });
         }
         }
+        _ = start;
     }
+}
 
+$(#[unsafe_target_feature::unsafe_target_feature($feature)])?
+impl $name {
     #[inline(always)]
     fn op(&self, init_block_counter: u32, nonce: &[u8; $nonce_len], plaintext_or_ciphertext: &mut [u8]) {
         debug_assert_eq!(nonce.len(), Self::NONCE_LEN);
@@ -263,14 +238,6 @@ impl $name {
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         if len_remain >= Self::BLOCK_LEN * PARALLEL_BLOCKS {
             unsafe {
-                /*
-                let mut initial_state_sse = [
-                    _mm_loadu_si128(initial_state.as_ptr() as _),
-                    _mm_loadu_si128((initial_state.as_ptr() as *const u8).add(16) as _),
-                    _mm_loadu_si128((initial_state.as_ptr() as *const u8).add(32) as _),
-                    _mm_loadu_si128((initial_state.as_ptr() as *const u8).add(48) as _),
-                ];
-                */
 
                 let mut state = [
                     _mm_set1_epi32(initial_state[0] as _),
@@ -292,15 +259,11 @@ impl $name {
                 ];
                 state[12] = _mm_add_epi32(state[12], _mm_set_epi32(3, 2, 1, 0));
                 while len_remain >= Self::BLOCK_LEN * PARALLEL_BLOCKS {
-                    // _mm_prefetch(plaintext_or_ciphertext.as_ptr().add(start + Self::BLOCK_LEN * PARALLEL_BLOCKS) as _, _MM_HINT_T0);
-                    /*
-                    let res = rounds(&initial_state_sse);
-                    initial_state_sse[3] = _mm_add_epi32(initial_state_sse[3], _mm_set_epi32(0, 0, 0, PARALLEL_BLOCKS as _));
-                    */
                     let res = rounds_vertical(&state);
                     state[12] = _mm_add_epi32(state[12], _mm_set1_epi32(PARALLEL_BLOCKS as _));
                    
-                    for block in 0..4 {
+                    #[crate::loop_unroll(block, 0, 4)]
+                    fn loop_unroll() {
                         let block = &res[block];
                         let block00 = _mm_loadu_si128(plaintext_or_ciphertext.as_ptr().add(start) as _);
                         let block01 = _mm_loadu_si128(plaintext_or_ciphertext.as_ptr().add(start + 16) as _);
@@ -346,7 +309,8 @@ impl $name {
                     let res = rounds_vertical(&state);
                     state[12] = vaddq_u32(state[12], vdupq_n_u32(PARALLEL_BLOCKS as u32));
 
-                    for i in 0..PARALLEL_BLOCKS {
+                    #[crate::loop_unroll(i, 0, 4)]
+                    fn loop_unroll() {
                         let block = &res[i];
                         let mut block00 = vld1q_u32(plaintext_or_ciphertext.as_ptr().add(start) as _);
                         let mut block01 = vld1q_u32(plaintext_or_ciphertext.as_ptr().add(start + 16) as _);
@@ -386,7 +350,8 @@ impl $name {
                     let res = rounds(&initial_state_neon);
                     initial_state_neon[3] = vaddq_u32(initial_state_neon[3], vld1q_u32([PARALLEL_BLOCKS as u32, 0, 0, 0].as_ptr()));
 
-                    for i in 0..PARALLEL_BLOCKS {
+                    #[crate::loop_unroll(i, 0, 4)]
+                    fn loop_unroll() {
                         let block = &res[i];
                         let mut block00 = vld1q_u32(plaintext_or_ciphertext.as_ptr().add(start) as _);
                         let mut block01 = vld1q_u32(plaintext_or_ciphertext.as_ptr().add(start + 16) as _);
@@ -511,16 +476,11 @@ pub(crate) fn diagonal_rounds(state: &mut [u32; 16]) {
         quarter_round(state, 2, 7, 8, 13);
         quarter_round(state, 3, 4, 9, 14);
     }
-    two_rounds(state);
-    two_rounds(state);
-    two_rounds(state);
-    two_rounds(state);
-    two_rounds(state);
-    two_rounds(state);
-    two_rounds(state);
-    two_rounds(state);
-    two_rounds(state);
-    two_rounds(state);
+
+    #[crate::loop_unroll(_, 0, 10)]
+    fn loop_unroll() {
+        two_rounds(state);
+    }
 }
 
 #[inline(always)]
@@ -631,18 +591,13 @@ cfg_if::cfg_if! {
                 quarter_round_sse_idx(v, 3, 4, 9, 14);
             }
 
-            double_quarter_round_sse(&mut res);
-            double_quarter_round_sse(&mut res);
-            double_quarter_round_sse(&mut res);
-            double_quarter_round_sse(&mut res);
-            double_quarter_round_sse(&mut res);
-            double_quarter_round_sse(&mut res);
-            double_quarter_round_sse(&mut res);
-            double_quarter_round_sse(&mut res);
-            double_quarter_round_sse(&mut res);
-            double_quarter_round_sse(&mut res);
+            #[crate::loop_unroll(_, 0, 10)]
+            fn loop_unroll() {
+                double_quarter_round_sse(&mut res);
+            }
 
-            for i in 0..16 {
+            #[crate::loop_unroll(i, 0, 16)]
+            fn loop_unroll() {
                 res[i] = _mm_add_epi32(res[i], v[i]);
             }
             interleave4x4(res)
@@ -652,7 +607,8 @@ cfg_if::cfg_if! {
         #[inline]
         unsafe fn interleave4x4(v: [__m128i; 16]) -> [[__m128i; 4]; 4] {
             let mut res = [[v[0]; 4]; 4];
-            for i in 0..4 {
+            #[crate::loop_unroll(i, 0, 4)]
+            fn loop_unroll() {
                 let a = v[i * 4 + 0];
                 let b = v[i * 4 + 1];
                 let c = v[i * 4 + 2];
@@ -674,24 +630,21 @@ cfg_if::cfg_if! {
         #[inline]
         unsafe fn rounds(v: &[__m128i; 4]) -> [[__m128i; 4]; PARALLEL_BLOCKS] {
             let mut res = [*v; PARALLEL_BLOCKS];
-            for i in 1..PARALLEL_BLOCKS {
+            #[crate::loop_unroll(i, 0, 4)]
+            fn loop_unroll() {
                 res[i][3] = _mm_add_epi32(res[i][3], _mm_set_epi32(0, 0, 0, i as i32));
             }
 
-            double_quarter_round(&mut res);
-            double_quarter_round(&mut res);
-            double_quarter_round(&mut res);
-            double_quarter_round(&mut res);
-            double_quarter_round(&mut res);
-            double_quarter_round(&mut res);
-            double_quarter_round(&mut res);
-            double_quarter_round(&mut res);
-            double_quarter_round(&mut res);
-            double_quarter_round(&mut res);
+            #[crate::loop_unroll(_, 0, 10)]
+            fn loop_unroll() {
+                double_quarter_round(&mut res);
+            }
 
 
-            for i in 0..PARALLEL_BLOCKS {
-                for j in 0..4 {
+            #[crate::loop_unroll(i, 0, 4)]
+            fn loop_unroll() {
+                #[crate::loop_unroll(j, 0, 4)]
+                fn loop_unroll() {
                     res[i][j] = _mm_add_epi32(res[i][j], v[j]);
                 }
 
@@ -705,7 +658,8 @@ cfg_if::cfg_if! {
         #[target_feature(enable = "sse2")]
         #[inline]
         unsafe fn rows_to_cols(blocks: &mut [[__m128i; 4]; PARALLEL_BLOCKS]) {
-            for i in 0..PARALLEL_BLOCKS {
+            #[crate::loop_unroll(i, 0, 4)]
+            fn loop_unroll() {
                 let [a, _, c, d] = &mut blocks[i];
                 *c = _mm_shuffle_epi32(*c, 0b_00_11_10_01); // _MM_SHUFFLE(0, 3, 2, 1)
                 *d = _mm_shuffle_epi32(*d, 0b_01_00_11_10); // _MM_SHUFFLE(1, 0, 3, 2)
@@ -716,8 +670,8 @@ cfg_if::cfg_if! {
         #[target_feature(enable = "sse2")]
         #[inline]
         unsafe fn cols_to_rows(blocks: &mut [[__m128i; 4]; PARALLEL_BLOCKS]) {
-
-            for i in 0..PARALLEL_BLOCKS {
+            #[crate::loop_unroll(i, 0, 4)]
+            fn loop_unroll() {
                 let [a, _, c, d] = &mut blocks[i];
                 *c = _mm_shuffle_epi32(*c, 0b_10_01_00_11); // _MM_SHUFFLE(2, 1, 0, 3)
                 *d = _mm_shuffle_epi32(*d, 0b_01_00_11_10); // _MM_SHUFFLE(1, 0, 3, 2)
@@ -728,7 +682,8 @@ cfg_if::cfg_if! {
         #[target_feature(enable = "sse2")]
         #[inline]
         unsafe fn add_xor_rot(blocks: &mut [[__m128i; 4]; PARALLEL_BLOCKS]) {
-            for i in 0..PARALLEL_BLOCKS {
+            #[crate::loop_unroll(i, 0, 4)]
+            fn loop_unroll() {
                 let [a, b, c, d] = &mut blocks[i];
                 quarter_round_sse(a, b, c, d);
             }
@@ -830,18 +785,12 @@ cfg_if::cfg_if! {
                 quarter_round_neon_idx(v, 3, 4, 9, 14);
             }
 
-            double_quarter_round_neon(&mut res);
-            double_quarter_round_neon(&mut res);
-            double_quarter_round_neon(&mut res);
-            double_quarter_round_neon(&mut res);
-            double_quarter_round_neon(&mut res);
-            double_quarter_round_neon(&mut res);
-            double_quarter_round_neon(&mut res);
-            double_quarter_round_neon(&mut res);
-            double_quarter_round_neon(&mut res);
-            double_quarter_round_neon(&mut res);
+            crate::const_loop!(_, 0, 10, {
+                double_quarter_round_neon(&mut res);
+            }); 
 
-            for i in 0..16 {
+            #[crate::loop_unroll(i, 0, 16)]
+                    fn loop_unroll() {
                 res[i] = vaddq_u32(res[i], v[i]);
             }
             #[target_feature(enable = "neon")]
@@ -849,7 +798,8 @@ cfg_if::cfg_if! {
             unsafe fn interleave4x4(v: [uint32x4_t; 4 * 4]) -> [[uint32x4_t; 4]; 4] {
                 let mut res = [[v[0]; 4]; PARALLEL_BLOCKS];
 
-                for i in 0..4 {
+                #[crate::loop_unroll(i, 0, 4)]
+                fn loop_unroll() {
                     let a = v[i * 4 + 0];
                     let b = v[i * 4 + 1];
                     let c = v[i * 4 + 2];
@@ -878,18 +828,12 @@ cfg_if::cfg_if! {
                 res[i][3] = add64!(res[i][3], vld1q_u32([i as u32, 0, 0, 0].as_ptr()));
             }
 
-            double_quarter_round(&mut res);
-            double_quarter_round(&mut res);
-            double_quarter_round(&mut res);
-            double_quarter_round(&mut res);
-            double_quarter_round(&mut res);
-            double_quarter_round(&mut res);
-            double_quarter_round(&mut res);
-            double_quarter_round(&mut res);
-            double_quarter_round(&mut res);
-            double_quarter_round(&mut res);
+            crate::const_loop!(_, 0, 10, {
+                double_quarter_round(&mut res);
+            });
 
-            for i in 0..PARALLEL_BLOCKS {
+            #[crate::loop_unroll(i, 0, 4)]
+            fn loop_unroll() {
                 res[i][0] = vaddq_u32(res[i][0], v[0]);
                 res[i][1] = vaddq_u32(res[i][1], v[1]);
                 res[i][2] = vaddq_u32(res[i][2], v[2]);
@@ -905,7 +849,8 @@ cfg_if::cfg_if! {
         #[target_feature(enable = "neon")]
         #[inline]
         unsafe fn rows_to_cols(blocks: &mut [[uint32x4_t; 4]; PARALLEL_BLOCKS]) {
-            for i in 0..PARALLEL_BLOCKS {
+            #[crate::loop_unroll(i, 0, 4)]
+            fn loop_unroll() {
                 let [a, _, c, d] = &mut blocks[i];
                 *c = vextq_u32(*c, *c, 1);
                 *d = vextq_u32(*d, *d, 2);
@@ -916,7 +861,8 @@ cfg_if::cfg_if! {
         #[target_feature(enable = "neon")]
         #[inline]
         unsafe fn cols_to_rows(blocks: &mut [[uint32x4_t; 4]; PARALLEL_BLOCKS]) {
-            for i in 0..PARALLEL_BLOCKS {
+            #[crate::loop_unroll(i, 0, 4)]
+            fn loop_unroll() {
                 let [a, _, c, d] = &mut blocks[i];
                 *c = vextq_u32(*c, *c, 3);
                 *d = vextq_u32(*d, *d, 2);
@@ -927,7 +873,8 @@ cfg_if::cfg_if! {
         #[target_feature(enable = "neon")]
         #[inline]
         unsafe fn add_xor_rot(blocks: &mut [[uint32x4_t; 4]; PARALLEL_BLOCKS]) {
-            for i in 0..PARALLEL_BLOCKS {
+            #[crate::loop_unroll(i, 0, 4)]
+            fn loop_unroll() {
                 let [a, b, c, d] = &mut blocks[i];
                 quarter_round_neon(a, b, c, d);
             }
