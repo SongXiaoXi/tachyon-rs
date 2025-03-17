@@ -169,7 +169,7 @@ macro_rules! impl_block_cipher_with_gcm_mode {
                 let mut start = 0;
                 let mut plen_remain = plen;
                 
-                while plen_remain >= Self::BLOCK_LEN * 8 {
+                if plen_remain >= Self::BLOCK_LEN * 8 {
                     let [mut ectr0, mut ectr1, mut ectr2, mut ectr3] = Self::ctr32x4(&mut counter_block);
                     self.cipher.encrypt_4_blocks(&mut ectr0, &mut ectr1, &mut ectr2, &mut ectr3);
 
@@ -187,31 +187,61 @@ macro_rules! impl_block_cipher_with_gcm_mode {
                         *slice_to_array_at_mut(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 2) = block2;
                         *slice_to_array_at_mut(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 3) = block3;
                     }
+                    
+                    [ectr0, ectr1, ectr2, ectr3] = Self::ctr32x4(&mut counter_block);      
 
-                    let mut block4 = unsafe {slice_to_array_at(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 4).clone()};
-                    let mut block5 = unsafe {slice_to_array_at(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 5).clone()};
-                    let mut block6 = unsafe {slice_to_array_at(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 6).clone()};
-                    let mut block7 = unsafe {slice_to_array_at(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 7).clone()};
+                    start += Self::BLOCK_LEN * 4;
+                    plen_remain -= Self::BLOCK_LEN * 4;
+
+                    while plen_remain >= Self::BLOCK_LEN * 8 {
+
+                        self.cipher.encrypt_4_blocks(&mut ectr0, &mut ectr1, &mut ectr2, &mut ectr3);
+
+                        mac.update_4block_for_aes(&block0, &block1, &block2, &block3);
+
+                        block0 = unsafe {slice_to_array_at(plaintext_in_ciphertext_out, start).clone()};
+                        block1 = unsafe {slice_to_array_at(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN).clone()};
+                        block2 = unsafe {slice_to_array_at(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 2).clone()};
+                        block3 = unsafe {slice_to_array_at(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 3).clone()};
+                        xor_si128_inplace(&mut block0, &ectr0);
+                        xor_si128_inplace(&mut block1, &ectr1);
+                        xor_si128_inplace(&mut block2, &ectr2);
+                        xor_si128_inplace(&mut block3, &ectr3);
+
+                        [ectr0, ectr1, ectr2, ectr3] = Self::ctr32x4(&mut counter_block);
+
+                        unsafe {
+                            *slice_to_array_at_mut(plaintext_in_ciphertext_out, start) = block0;
+                            *slice_to_array_at_mut(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN) = block1;
+                            *slice_to_array_at_mut(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 2) = block2;
+                            *slice_to_array_at_mut(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 3) = block3;
+                        }
+
+                        start += Self::BLOCK_LEN * 4;
+                        plen_remain -= Self::BLOCK_LEN * 4;
+                    }
 
                     mac.update_4block_for_aes(&block0, &block1, &block2, &block3);
-
-                    let [mut ectr0, mut ectr1, mut ectr2, mut ectr3] = Self::ctr32x4(&mut counter_block);
                     self.cipher.encrypt_4_blocks(&mut ectr0, &mut ectr1, &mut ectr2, &mut ectr3);
 
-                    xor_si128_inplace(&mut block4, &ectr0);
-                    xor_si128_inplace(&mut block5, &ectr1);
-                    xor_si128_inplace(&mut block6, &ectr2);
-                    xor_si128_inplace(&mut block7, &ectr3);
+                    let mut block0 = unsafe {slice_to_array_at(plaintext_in_ciphertext_out, start).clone()};
+                    let mut block1 = unsafe {slice_to_array_at(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN).clone()};
+                    let mut block2 = unsafe {slice_to_array_at(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 2).clone()};
+                    let mut block3 = unsafe {slice_to_array_at(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 3).clone()};
+                    xor_si128_inplace(&mut block0, &ectr0);
+                    xor_si128_inplace(&mut block1, &ectr1);
+                    xor_si128_inplace(&mut block2, &ectr2);
+                    xor_si128_inplace(&mut block3, &ectr3);
                     unsafe {
-                        *slice_to_array_at_mut(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 4) = block4;
-                        *slice_to_array_at_mut(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 5) = block5;
-                        *slice_to_array_at_mut(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 6) = block6;
-                        *slice_to_array_at_mut(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 7) = block7;
+                        *slice_to_array_at_mut(plaintext_in_ciphertext_out, start) = block0;
+                        *slice_to_array_at_mut(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN) = block1;
+                        *slice_to_array_at_mut(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 2) = block2;
+                        *slice_to_array_at_mut(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 3) = block3;
                     }
-                    mac.update_4block_for_aes(&block4, &block5, &block6, &block7);
+                    mac.update_4block_for_aes(&block0, &block1, &block2, &block3);
 
-                    start += Self::BLOCK_LEN * 8;
-                    plen_remain -= Self::BLOCK_LEN * 8;
+                    start += Self::BLOCK_LEN * 4;
+                    plen_remain -= Self::BLOCK_LEN * 4;
                 }
                 
                 while plen_remain >= Self::BLOCK_LEN {
