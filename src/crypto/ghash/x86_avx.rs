@@ -1,0 +1,134 @@
+#[cfg(target_arch = "x86")]
+use core::arch::x86::*;
+#[cfg(target_arch = "x86_64")]
+use core::arch::x86_64::*;
+use unsafe_target_feature::unsafe_target_feature;
+
+#[derive(Clone, Copy)]
+pub struct GHash {
+    key: __m128i,
+    buf: __m128i,
+    key2: __m128i,
+    key3: __m128i,
+    key4: __m128i,
+}
+
+use super::x86::gf_mul;
+use super::x86::gf_mul_reduce_4;
+
+#[unsafe_target_feature("avx,pclmulqdq")]
+impl GHash {
+    pub const KEY_LEN: usize = 16;
+    pub const BLOCK_LEN: usize = 16;
+    pub const TAG_LEN: usize = 16;
+
+    #[inline(always)]
+    pub fn new(key: &[u8; 16]) -> Self {
+        unsafe { Self::new_simd(key) }
+    }
+
+    #[inline]
+    unsafe fn new_simd(key: &[u8; Self::KEY_LEN]) -> Self {
+        let key = key.clone();
+
+        let tag = _mm_setzero_si128();
+        let vm = _mm_setr_epi8(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
+        let key = _mm_shuffle_epi8(_mm_loadu_si128(key.as_ptr() as *const __m128i), vm);
+
+        let key2 = Self::gf_mul(key, key);
+        let key3 = Self::gf_mul(key2, key);
+        let key4 = Self::gf_mul(key2, key2);
+        
+
+        Self { key, buf: tag, key2, key3, key4 }
+    }
+
+    #[inline]
+    unsafe fn gf_mul_buf(&mut self, mut b: __m128i) {
+        let vm = _mm_setr_epi8(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
+        b = _mm_shuffle_epi8(b, vm);
+        b = _mm_xor_si128(b, self.buf);
+        self.buf = Self::gf_mul(self.key, b);
+    }
+
+    // Performing Ghash Using Algorithms 1 and 5 (C)
+    #[inline]
+    unsafe fn gf_mul(a: __m128i, b: __m128i) -> __m128i {
+        gf_mul!(a, b)
+    }
+
+    #[inline]
+    pub(crate) unsafe fn gf_mul_reduce_4(
+        x1: __m128i, x2: __m128i, x3: __m128i, x4: __m128i,
+        h1: __m128i, h2: __m128i, h3: __m128i, h4: __m128i,
+    ) -> __m128i {
+        gf_mul_reduce_4!(x1, x2, x3, x4, h1, h2, h3, h4)
+    }
+
+    #[inline]
+    pub fn update(&mut self, m: &[u8]) {
+        let mut mlen = m.len();
+
+        if mlen == 0 {
+            return;
+        }
+
+        let mut start = 0;
+        while mlen >= Self::BLOCK_LEN {
+            self.gf_mul_buf(_mm_loadu_si128(&m[start] as *const u8 as *const _));
+            mlen -= Self::BLOCK_LEN;
+            start += Self::BLOCK_LEN;
+        }
+
+        if mlen != 0 {
+            let rem = &m[start..];
+            let rlen = rem.len();
+
+            let mut last_block = [0u8; Self::BLOCK_LEN];
+            // Magic: black_box is used to prevent the compiler from using bzero
+            std::hint::black_box(last_block.as_mut_ptr());
+            last_block[..rlen].copy_from_slice(rem);
+            self.gf_mul_buf(_mm_loadu_si128(last_block.as_ptr() as *const _));
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn update_4block_for_aes(&mut self, m0: &[u8; 16], m1: &[u8; 16], m2: &[u8; 16], m3: &[u8; 16]) {
+        unsafe {
+            let vm = _mm_setr_epi8(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
+            let m0 = _mm_loadu_si128(m0.as_ptr() as *const __m128i);
+            let m1 = _mm_loadu_si128(m1.as_ptr() as *const __m128i);
+            let m2 = _mm_loadu_si128(m2.as_ptr() as *const __m128i);
+            let m3 = _mm_loadu_si128(m3.as_ptr() as *const __m128i);
+            let m0 = _mm_shuffle_epi8(m0, vm);
+            let m1 = _mm_shuffle_epi8(m1, vm);
+            let m2 = _mm_shuffle_epi8(m2, vm);
+            let m3 = _mm_shuffle_epi8(m3, vm);
+            self.buf = Self::gf_mul_reduce_4(_mm_xor_si128(m0, self.buf), m1, m2, m3, self.key4, self.key3, self.key2, self.key);
+        }
+    }
+
+    #[inline]
+    pub fn finalize(self) -> [u8; 16] {
+        let mut out = [0u8; Self::TAG_LEN];
+
+        let vm = _mm_setr_epi8(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
+        _mm_storeu_si128(
+            out.as_mut_ptr() as *mut __m128i,
+            _mm_shuffle_epi8(self.buf, vm),
+        );
+        out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_ghash() {
+        if !(std::is_x86_feature_detected!("pclmulqdq") && std::is_x86_feature_detected!("avx")) {
+            return;
+        }
+        ghash_test_case!();
+    }
+}
