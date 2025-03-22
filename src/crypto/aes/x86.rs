@@ -79,19 +79,39 @@ macro_rules! DO_DEC_BLOCK {
 
 macro_rules! DO_ENC_4_BLOCKS {
     ($block0:expr, $block1:expr, $block2:expr, $block3:expr, $key:expr) => {
-        DO_ENC_BLOCK!($block0, $key);
-        DO_ENC_BLOCK!($block1, $key);
-        DO_ENC_BLOCK!($block2, $key);
-        DO_ENC_BLOCK!($block3, $key);
+        $block0 = _mm_xor_si128($block0, $key[0]);
+        $block1 = _mm_xor_si128($block1, $key[0]);
+        $block2 = _mm_xor_si128($block2, $key[0]);
+        $block3 = _mm_xor_si128($block3, $key[0]);
+        crate::const_loop!(i, 1, 9, {
+            $block0 = _mm_aesenc_si128($block0, $key[i]);
+            $block1 = _mm_aesenc_si128($block1, $key[i]);
+            $block2 = _mm_aesenc_si128($block2, $key[i]);
+            $block3 = _mm_aesenc_si128($block3, $key[i]);
+        });
+        $block0 = _mm_aesenclast_si128($block0, $key[10]);
+        $block1 = _mm_aesenclast_si128($block1, $key[10]);
+        $block2 = _mm_aesenclast_si128($block2, $key[10]);
+        $block3 = _mm_aesenclast_si128($block3, $key[10]);
     };
 }
 
 macro_rules! DO_DEC_4_BLOCKS {
     ($block0:expr, $block1:expr, $block2:expr, $block3:expr, $key:expr) => {
-        DO_DEC_BLOCK!($block0, $key);
-        DO_DEC_BLOCK!($block1, $key);
-        DO_DEC_BLOCK!($block2, $key);
-        DO_DEC_BLOCK!($block3, $key);
+        $block0 = _mm_xor_si128($block0, $key[10]);
+        $block1 = _mm_xor_si128($block1, $key[10]);
+        $block2 = _mm_xor_si128($block2, $key[10]);
+        $block3 = _mm_xor_si128($block3, $key[10]);
+        crate::const_loop!(i, 1, 9, {
+            $block0 = _mm_aesdec_si128($block0, $key[10 + i]);
+            $block1 = _mm_aesdec_si128($block1, $key[10 + i]);
+            $block2 = _mm_aesdec_si128($block2, $key[10 + i]);
+            $block3 = _mm_aesdec_si128($block3, $key[10 + i]);
+        });
+        $block0 = _mm_aesdeclast_si128($block0, $key[0]);
+        $block1 = _mm_aesdeclast_si128($block1, $key[0]);
+        $block2 = _mm_aesdeclast_si128($block2, $key[0]);
+        $block3 = _mm_aesdeclast_si128($block3, $key[0]);
     };
 }
 
