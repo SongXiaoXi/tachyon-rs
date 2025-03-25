@@ -62,7 +62,7 @@ pub(crate) fn aes128_key_schedule(key: &[u8; 16]) -> FixsliceKeys128 {
 /// Fully-fixsliced AES-128 decryption (the InvShiftRows is completely omitted).
 ///
 /// Decrypts four blocks in-place and in parallel.
-#[inline]
+#[inline(always)]
 pub(crate) fn aes128_decrypt(rkeys: &FixsliceKeys128, blocks: &BatchBlocks) -> BatchBlocks {
     let mut state = State::default();
 
@@ -119,7 +119,7 @@ pub(crate) fn aes128_decrypt(rkeys: &FixsliceKeys128, blocks: &BatchBlocks) -> B
 /// Fully-fixsliced AES-128 encryption (the ShiftRows is completely omitted).
 ///
 /// Encrypts four blocks in-place and in parallel.
-#[inline]
+#[inline(always)]
 pub(crate) fn aes128_encrypt(rkeys: &FixsliceKeys128, blocks: &BatchBlocks) -> BatchBlocks {
     let mut state = State::default();
 
@@ -175,7 +175,7 @@ pub(crate) fn aes128_encrypt(rkeys: &FixsliceKeys128, blocks: &BatchBlocks) -> B
 
 /// Note that the 4 bitwise NOT (^= 0xffffffffffffffff) are accounted for here so that it is a true
 /// inverse of 'sub_bytes'.
-#[inline]
+#[inline(always)]
 fn inv_sub_bytes(state: &mut [u64]) {
     debug_assert_eq!(state.len(), 8);
 
@@ -385,7 +385,7 @@ fn inv_sub_bytes(state: &mut [u64]) {
 /// See: <http://www.cs.yale.edu/homes/peralta/CircuitStuff/SLP_AES_113.txt>
 ///
 /// Note that the 4 bitwise NOT (^= 0xffffffffffffffff) are moved to the key schedule.
-#[inline]
+#[inline(always)]
 fn sub_bytes(state: &mut [u64]) {
     debug_assert_eq!(state.len(), 8);
 
@@ -558,7 +558,7 @@ fn sub_bytes(state: &mut [u64]) {
 }
 
 /// NOT operations that are omitted in S-box
-#[inline]
+#[inline(always)]
 fn sub_bytes_nots(state: &mut [u64]) {
     debug_assert_eq!(state.len(), 8);
     state[0] ^= 0xffffffffffffffff;
@@ -578,6 +578,7 @@ macro_rules! define_mix_columns {
         $first_rotate:path,
         $second_rotate:path
     ) => {
+        #[inline(always)]
         #[rustfmt::skip]
         fn $name(state: &mut State) {
             let (a0, a1, a2, a3, a4, a5, a6, a7) = (
@@ -700,13 +701,13 @@ define_mix_columns!(
     rotate_rows_and_columns_2_2
 );
 
-#[inline]
+#[inline(always)]
 fn delta_swap_1(a: &mut u64, shift: u32, mask: u64) {
     let t = (*a ^ ((*a) >> shift)) & mask;
     *a ^= t ^ (t << shift);
 }
 
-#[inline]
+#[inline(always)]
 fn delta_swap_2(a: &mut u64, b: &mut u64, shift: u32, mask: u64) {
     let t = (*a ^ ((*b) >> shift)) & mask;
     *a ^= t;
@@ -716,7 +717,7 @@ fn delta_swap_2(a: &mut u64, b: &mut u64, shift: u32, mask: u64) {
 /* */
 /// Applies ShiftRows once on an AES state (or key).
 #[cfg(not(aes_compact))]
-#[inline]
+#[inline(always)]
 fn shift_rows_1(state: &mut [u64]) {
     debug_assert_eq!(state.len(), 8);
     for x in state.iter_mut() {
@@ -726,7 +727,7 @@ fn shift_rows_1(state: &mut [u64]) {
 }
 
 /// Applies ShiftRows twice on an AES state (or key).
-#[inline]
+#[inline(always)]
 fn shift_rows_2(state: &mut [u64]) {
     debug_assert_eq!(state.len(), 8);
     for x in state.iter_mut() {
@@ -735,7 +736,7 @@ fn shift_rows_2(state: &mut [u64]) {
 }
 
 /// Applies ShiftRows three times on an AES state (or key).
-#[inline]
+#[inline(always)]
 fn shift_rows_3(state: &mut [u64]) {
     debug_assert_eq!(state.len(), 8);
     for x in state.iter_mut() {
@@ -768,7 +769,7 @@ fn inv_shift_rows_3(state: &mut [u64]) {
 ///
 /// The `idx_ror` parameter refers to the rotation value, which varies between the
 /// different key schedules.
-#[inline]
+#[inline(always)]
 fn xor_columns(rkeys: &mut [u64], offset: usize, idx_xor: usize, idx_ror: u32) {
     #[crate::loop_unroll(i, 0, 8)]
     fn loop_unroll() {
@@ -782,7 +783,7 @@ fn xor_columns(rkeys: &mut [u64], offset: usize, idx_xor: usize, idx_ror: u32) {
 }
 
 /// Bitslice four 128-bit input blocks input0, input1, input2, input3 into a 512-bit internal state.
-#[inline]
+#[inline(always)]
 fn bitslice(output: &mut [u64], input0: &[u8], input1: &[u8], input2: &[u8], input3: &[u8]) {
     debug_assert_eq!(output.len(), 8);
     debug_assert_eq!(input0.len(), 16);
@@ -797,7 +798,7 @@ fn bitslice(output: &mut [u64], input0: &[u8], input1: &[u8], input2: &[u8], inp
     //
     // The desired bitsliced data groups first by bit position, then row, column, block:
     //     p2 p1 p0 r1 r0 c1 c0 b1 b0
-
+    #[inline(always)]
     #[rustfmt::skip]
     fn read_reordered(input: &[u8]) -> u64 {
         (u64::from(input[0x0])        ) |
@@ -860,7 +861,7 @@ fn bitslice(output: &mut [u64], input0: &[u8], input1: &[u8], input2: &[u8], inp
 }
 
 /// Un-bitslice a 512-bit internal state into four 128-bit blocks of output.
-#[inline]
+#[inline(always)]
 fn inv_bitslice(input: &[u64]) -> BatchBlocks {
     debug_assert_eq!(input.len(), 8);
 
@@ -939,6 +940,7 @@ fn inv_bitslice(input: &[u64]) -> BatchBlocks {
 }
 
 /// Copy 32-bytes within the provided slice to an 8-byte offset
+#[inline(always)]
 fn memshift32(buffer: &mut [u64], src_offset: usize) {
     debug_assert_eq!(src_offset % 8, 0);
 
@@ -952,7 +954,7 @@ fn memshift32(buffer: &mut [u64], src_offset: usize) {
 
 /// XOR the round key to the internal state. The round keys are expected to be
 /// pre-computed and to be packed in the fixsliced representation.
-#[inline]
+#[inline(always)]
 fn add_round_key(state: &mut State, rkey: &[u64]) {
     debug_assert_eq!(rkey.len(), 8);
     for (a, b) in state.iter_mut().zip(rkey) {
