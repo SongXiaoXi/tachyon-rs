@@ -2,6 +2,7 @@ use std::sync::OnceLock;
 
 cfg_if::cfg_if!{
     if #[cfg(target_os = "macos")] {
+        /// Get the CPU name from sysctlbyname("machdep.cpu.brand_string") on macOS.
         pub fn cpu_name() -> &'static str {
             static NAME: OnceLock<String> = OnceLock::new();
             NAME.get_or_init(|| {
@@ -18,6 +19,7 @@ cfg_if::cfg_if!{
             }).as_str()
         }
     } else if #[cfg(target_vendor = "apple")] {
+        /// Get the device marketing name from MobileGestalt on iOS.
         pub fn cpu_name() -> &'static str {
             static NAME: OnceLock<String> = OnceLock::new();
             NAME.get_or_init(|| {
@@ -63,6 +65,7 @@ cfg_if::cfg_if!{
             }).as_str()
         }
     } else if #[cfg(any(target_arch = "x86_64", target_arch = "x86"))] {
+        /// Get the CPU name from CPUID on x86 and x86_64.
         pub fn cpu_name() -> &'static str {
             static NAME: OnceLock<String> = OnceLock::new();
             NAME.get_or_init(|| {
@@ -85,7 +88,8 @@ cfg_if::cfg_if!{
                 String::from_utf8_lossy(&brand_string).trim_matches(|c: char| c.is_whitespace() || c=='\0').to_string()
             }).as_str()
         }
-    } else if #[cfg(any(target_os = "linux", target_os = "android"))] {
+    } else if #[cfg(target_os = "linux")] {
+        /// Get the CPU name from /proc/cpuinfo or /proc/device-tree/model on Linux.
         pub fn cpu_name() -> &'static str {
             static NAME: OnceLock<String> = OnceLock::new();
             NAME.get_or_init(|| {
@@ -110,6 +114,22 @@ cfg_if::cfg_if!{
                             }
                         }
                     }
+                }
+                "Unknown CPU".to_string()
+            }).as_str()
+        }
+    } else if #[cfg(target_os = "android")] {
+        /// Get the CPU name from build.prop on Android.
+        pub fn cpu_name() -> &'static str {
+            use super::android::system_property_get;
+            use std::ffi::CStr;
+            static NAME: OnceLock<String> = OnceLock::new();
+            NAME.get_or_init(|| {
+                if let Some(soc_model) = system_property_get(unsafe { CStr::from_ptr(b"ro.soc.model\0".as_ptr()) }) {
+                    return soc_model;
+                }
+                if let Some(hw_model) = system_property_get(unsafe { CStr::from_ptr(b"ro.product.model\0".as_ptr()) }) {
+                    return hw_model;
                 }
                 "Unknown CPU".to_string()
             }).as_str()
