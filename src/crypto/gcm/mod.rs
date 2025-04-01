@@ -5,12 +5,14 @@ pub const NONCE_LEN: usize = 96 / 8;
 pub struct Nonce(pub [u8; NONCE_LEN]);
 
 impl Nonce {
+    #[inline(always)]
     pub fn new(value: [u8; NONCE_LEN]) -> Self {
         Self(value)
     }
 }
 
 impl AsRef<[u8; NONCE_LEN]> for Nonce {
+    #[inline(always)]
     fn as_ref(&self) -> &[u8; NONCE_LEN] {
         &self.0
     }
@@ -45,6 +47,32 @@ macro_rules! impl_block_cipher_with_gcm_mode {
                     Self::ctr32(counter_block),
                     Self::ctr32(counter_block),
                 ]
+            }
+
+            #[inline(always)]
+            fn ctr32_(nonce_block: &[u8; 16], counter: &mut u32) -> [u8; 16] {
+                let mut ctr = nonce_block.clone();
+                unsafe {
+                    *crate::utils::slice_to_array_at_mut(&mut ctr, Self::NONCE_LEN) = counter.wrapping_add(1).to_be_bytes();
+                }
+                *counter = counter.wrapping_add(1);
+                ctr
+            }
+
+            #[inline(always)]
+            fn ctr32x4_(nonce_block: &[u8; 16], counter: &mut u32) -> [[u8; 16]; 4] {
+                let mut ctr0 = nonce_block.clone();
+                let mut ctr1 = nonce_block.clone();
+                let mut ctr2 = nonce_block.clone();
+                let mut ctr3 = nonce_block.clone();
+                unsafe {
+                    *crate::utils::slice_to_array_at_mut(&mut ctr0, Self::NONCE_LEN) = counter.wrapping_add(1).to_be_bytes();
+                    *crate::utils::slice_to_array_at_mut(&mut ctr1, Self::NONCE_LEN) = counter.wrapping_add(2).to_be_bytes();
+                    *crate::utils::slice_to_array_at_mut(&mut ctr2, Self::NONCE_LEN) = counter.wrapping_add(3).to_be_bytes();
+                    *crate::utils::slice_to_array_at_mut(&mut ctr3, Self::NONCE_LEN) = counter.wrapping_add(4).to_be_bytes();
+                }
+                *counter = counter.wrapping_add(4);
+                [ctr0, ctr1, ctr2, ctr3]
             }
         }
 
@@ -111,7 +139,7 @@ macro_rules! impl_block_cipher_with_gcm_mode {
                 Self { cipher, ghash }
             }
 
-            #[inline]
+            #[inline(always)]
             pub fn encrypt_slice(&self, nonce: &[u8; 12], aad: &[u8], aead_pkt: &mut [u8]) {
                 debug_assert!(aead_pkt.len() >= Self::TAG_LEN);
 
@@ -156,21 +184,23 @@ macro_rules! impl_block_cipher_with_gcm_mode {
 
                 let mut mac = self.ghash.clone();
 
+                let mut counter = 1u32;
                 let mut counter_block = [0u8; Self::BLOCK_LEN];
                 counter_block[..Self::NONCE_LEN].copy_from_slice(&nonce[..Self::NONCE_LEN]);
-                counter_block[15] = 1;
+                unsafe {
+                    *crate::utils::slice_to_array_at_mut(&mut counter_block, Self::NONCE_LEN) = counter.to_be_bytes();
+                }
 
                 let mut base_ectr = counter_block.clone();
                 self.cipher.encrypt(&mut base_ectr);
 
                 mac.update(aad);
 
-
                 let mut start = 0;
                 let mut plen_remain = plen;
                 
-                if plen_remain >= Self::BLOCK_LEN * 8 {
-                    let [mut ectr0, mut ectr1, mut ectr2, mut ectr3] = Self::ctr32x4(&mut counter_block);
+                if plen_remain >= Self::BLOCK_LEN * 4 {
+                    let [mut ectr0, mut ectr1, mut ectr2, mut ectr3] = Self::ctr32x4_(&counter_block, &mut counter);
                     self.cipher.encrypt_4_blocks(&mut ectr0, &mut ectr1, &mut ectr2, &mut ectr3);
 
                     let mut block0 = unsafe {slice_to_array_at(plaintext_in_ciphertext_out, start).clone()};
@@ -188,12 +218,12 @@ macro_rules! impl_block_cipher_with_gcm_mode {
                         *slice_to_array_at_mut(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 3) = block3;
                     }
                     
-                    [ectr0, ectr1, ectr2, ectr3] = Self::ctr32x4(&mut counter_block);      
+                    [ectr0, ectr1, ectr2, ectr3] = Self::ctr32x4_(&counter_block, &mut counter);
 
                     start += Self::BLOCK_LEN * 4;
                     plen_remain -= Self::BLOCK_LEN * 4;
 
-                    while plen_remain >= Self::BLOCK_LEN * 8 {
+                    while plen_remain >= Self::BLOCK_LEN * 4 {
 
                         self.cipher.encrypt_4_blocks(&mut ectr0, &mut ectr1, &mut ectr2, &mut ectr3);
 
@@ -208,7 +238,7 @@ macro_rules! impl_block_cipher_with_gcm_mode {
                         xor_si128_inplace(&mut block2, &ectr2);
                         xor_si128_inplace(&mut block3, &ectr3);
 
-                        [ectr0, ectr1, ectr2, ectr3] = Self::ctr32x4(&mut counter_block);
+                        [ectr0, ectr1, ectr2, ectr3] = Self::ctr32x4_(&counter_block, &mut counter);
 
                         unsafe {
                             *slice_to_array_at_mut(plaintext_in_ciphertext_out, start) = block0;
@@ -221,33 +251,14 @@ macro_rules! impl_block_cipher_with_gcm_mode {
                         plen_remain -= Self::BLOCK_LEN * 4;
                     }
 
+                    counter -= 4;
                     mac.update_4block_for_aes(&block0, &block1, &block2, &block3);
-                    self.cipher.encrypt_4_blocks(&mut ectr0, &mut ectr1, &mut ectr2, &mut ectr3);
-
-                    let mut block0 = unsafe {slice_to_array_at(plaintext_in_ciphertext_out, start).clone()};
-                    let mut block1 = unsafe {slice_to_array_at(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN).clone()};
-                    let mut block2 = unsafe {slice_to_array_at(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 2).clone()};
-                    let mut block3 = unsafe {slice_to_array_at(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 3).clone()};
-                    xor_si128_inplace(&mut block0, &ectr0);
-                    xor_si128_inplace(&mut block1, &ectr1);
-                    xor_si128_inplace(&mut block2, &ectr2);
-                    xor_si128_inplace(&mut block3, &ectr3);
-                    unsafe {
-                        *slice_to_array_at_mut(plaintext_in_ciphertext_out, start) = block0;
-                        *slice_to_array_at_mut(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN) = block1;
-                        *slice_to_array_at_mut(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 2) = block2;
-                        *slice_to_array_at_mut(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 3) = block3;
-                    }
-                    mac.update_4block_for_aes(&block0, &block1, &block2, &block3);
-
-                    start += Self::BLOCK_LEN * 4;
-                    plen_remain -= Self::BLOCK_LEN * 4;
                 }
                 
                 while plen_remain >= Self::BLOCK_LEN {
                     let mut block: [u8; Self::BLOCK_LEN] = unsafe {slice_to_array_at(plaintext_in_ciphertext_out, start).clone()};
 
-                    let mut ectr = Self::ctr32(&mut counter_block);
+                    let mut ectr = Self::ctr32_(&counter_block, &mut counter);
 
                     self.cipher.encrypt(&mut ectr);
 
@@ -262,7 +273,7 @@ macro_rules! impl_block_cipher_with_gcm_mode {
                 }
 
                 if plen_remain != 0 {
-                    let mut ectr = Self::ctr32(&mut counter_block);
+                    let mut ectr = Self::ctr32_(&counter_block, &mut counter);
 
                     self.cipher.encrypt(&mut ectr);
 
@@ -320,9 +331,12 @@ macro_rules! impl_block_cipher_with_gcm_mode {
 
                 let mut mac = self.ghash.clone();
 
+                let mut counter = 1u32;
                 let mut counter_block = [0u8; Self::BLOCK_LEN];
                 counter_block[..Self::NONCE_LEN].copy_from_slice(&nonce[..Self::NONCE_LEN]);
-                counter_block[15] = 1; // init counter (big-endian)
+                unsafe {
+                    *crate::utils::slice_to_array_at_mut(&mut counter_block, Self::NONCE_LEN) = counter.to_be_bytes();
+                }
 
                 let mut base_ectr = counter_block.clone();
                 self.cipher.encrypt(&mut base_ectr);
@@ -333,10 +347,7 @@ macro_rules! impl_block_cipher_with_gcm_mode {
                 let mut clen_remain = clen;
 
                 while clen_remain >= Self::BLOCK_LEN * 8 {
-                    let mut ectr0 = Self::ctr32(&mut counter_block);
-                    let mut ectr1 = Self::ctr32(&mut counter_block);
-                    let mut ectr2 = Self::ctr32(&mut counter_block);
-                    let mut ectr3 = Self::ctr32(&mut counter_block);
+                    let [mut ectr0, mut ectr1, mut ectr2, mut ectr3] = Self::ctr32x4_(&counter_block, &mut counter);
                     self.cipher.encrypt_4_blocks(&mut ectr0, &mut ectr1, &mut ectr2, &mut ectr3);
 
                     let mut block0 = unsafe {slice_to_array_at(ciphertext_in_plaintext_out, start).clone()};
@@ -351,10 +362,7 @@ macro_rules! impl_block_cipher_with_gcm_mode {
                     xor_si128_inplace(&mut block2, &ectr2);
                     xor_si128_inplace(&mut block3, &ectr3);
 
-                    let mut ectr0 = Self::ctr32(&mut counter_block);
-                    let mut ectr1 = Self::ctr32(&mut counter_block);
-                    let mut ectr2 = Self::ctr32(&mut counter_block);
-                    let mut ectr3 = Self::ctr32(&mut counter_block);
+                    let [mut ectr0, mut ectr1, mut ectr2, mut ectr3] = Self::ctr32x4_(&counter_block, &mut counter);
                     self.cipher.encrypt_4_blocks(&mut ectr0, &mut ectr1, &mut ectr2, &mut ectr3);
 
                     unsafe {
@@ -388,7 +396,7 @@ macro_rules! impl_block_cipher_with_gcm_mode {
                 }
 
                 while clen_remain >= Self::BLOCK_LEN {
-                    let mut ectr = Self::ctr32(&mut counter_block);
+                    let mut ectr = Self::ctr32_(&counter_block, &mut counter);
                     self.cipher.encrypt(&mut ectr);
 
                     let block = unsafe {
@@ -403,7 +411,7 @@ macro_rules! impl_block_cipher_with_gcm_mode {
                 }
 
                 if clen_remain != 0 {
-                    let mut ectr = Self::ctr32(&mut counter_block);
+                    let mut ectr = Self::ctr32_(&counter_block, &mut counter);
 
                     self.cipher.encrypt(&mut ectr);
 
@@ -674,9 +682,24 @@ mod tests {
 
         let mut ciphertext_ring = plaintext.to_vec();
         let key = aead::LessSafeKey::new(aead::UnboundKey::new(&AES_128_GCM, &key).unwrap());
-        let aad = aead::Aad::from(aad);
-        let nonce = aead::Nonce::try_assume_unique_for_key(&nonce).unwrap();
-        let ret = key.seal_in_place_separate_tag(nonce, aad, &mut ciphertext_ring);
+        let aad_ring = aead::Aad::from(aad);
+        let nonce_ring = aead::Nonce::try_assume_unique_for_key(&nonce).unwrap();
+        let ret = key.seal_in_place_separate_tag(nonce_ring, aad_ring, &mut ciphertext_ring);
+        assert!(ret.is_ok());
+        assert_eq!(ciphertext, ciphertext_ring);
+        assert_eq!(tag, ret.unwrap().as_ref());
+
+        let ret = cipher.decrypt_slice_detached(&nonce, aad, &mut ciphertext, &tag);
+        assert!(ret);
+        assert_eq!(plaintext, &ciphertext[..]);
+
+        // encrypt again
+        let mut ciphertext = plaintext.to_vec();
+        cipher.encrypt_slice_detached(&nonce, aad, &mut ciphertext, &mut tag);
+
+        let mut ciphertext_ring = plaintext.to_vec();
+        let nonce_ring = aead::Nonce::try_assume_unique_for_key(&nonce).unwrap();
+        let ret = key.seal_in_place_separate_tag(nonce_ring, aad_ring, &mut ciphertext_ring);
         assert!(ret.is_ok());
         assert_eq!(ciphertext, ciphertext_ring);
         assert_eq!(tag, ret.unwrap().as_ref());
