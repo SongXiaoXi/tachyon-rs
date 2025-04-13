@@ -26,36 +26,35 @@ unsafe fn vmull_high(a: uint8x16_t, b: uint8x16_t) -> uint8x16_t {
 
 #[unsafe_target_feature("aes")]
 #[inline]
-unsafe fn gf_mul_without_modular(a: uint8x16_t, b: uint8x16_t) -> (uint8x16_t, uint8x16_t) {
+unsafe fn gf_mul_without_modular(a: uint8x16_t, b: uint8x16_t) -> (uint8x16_t, uint8x16_t, uint8x16_t) {
     let a_p = a;
     let b_p = b;
 
-    let z = vdupq_n_u8(0);
-
-    let mut r0 = vmull_low(a_p, b_p);
-    let mut r1 = vmull_high(a_p, b_p);
+    let r0 = vmull_low(a_p, b_p);
+    let r1 = vmull_high(a_p, b_p);
     let mut t0 = vextq_u8(b_p, b_p, 8);
-    let mut t1 = vmull_low(a_p, t0);
+    let t1 = vmull_low(a_p, t0);
     t0 = vmull_high(a_p, t0);
-
     t0 = veorq_u8(t0, t1);
-    t1 = vextq_u8(z, t0, 8);
-    r0 = veorq_u8(r0, t1);
-    t1 = vextq_u8(t0, z, 8);
-    r1 = veorq_u8(r1, t1);
 
-    return (r0, r1);
+    return (r0, t0, r1);
 }
 
 #[unsafe_target_feature("aes")]
 #[inline]
-unsafe fn gf_mul_modular(a: (uint8x16_t, uint8x16_t)) -> uint8x16_t {
+unsafe fn gf_mul_modular(a: (uint8x16_t, uint8x16_t, uint8x16_t)) -> uint8x16_t {
     let mut r0 = a.0;
-    let r1 = a.1;
+    let t0 = a.1;
+    let mut r1 = a.2;
+    let z = vdupq_n_u8(0);
+    let mut t1 = vextq_u8(z, t0, 8);
+    r0 = veorq_u8(r0, t1);
+    t1 = vextq_u8(t0, z, 8);
+    r1 = veorq_u8(r1, t1);
 
     let p = vreinterpretq_u8_u64(vdupq_n_u64(0x0000000000000087));
     let z = vdupq_n_u8(0);
-    
+
     let mut t0 = vmull_high(r1, p);
     let t1 = vextq_u8(t0, z, 8);
     let r1 = veorq_u8(r1, t1);
@@ -170,10 +169,11 @@ impl GHash {
             let ret2 = gf_mul_without_modular(self.key2, block2);
             let ret3 = gf_mul_without_modular(self.key, block3);
 
-            let ret_0 = veorq_u8(veorq_u8(ret0.0, ret1.0), veorq_u8(ret2.0, ret3.0));
-            let ret_1 = veorq_u8(veorq_u8(ret0.1, ret1.1), veorq_u8(ret2.1, ret3.1));
+            let ret_0 = veorq_u8(veorq_u8(veorq_u8(ret0.0, ret1.0), ret2.0), ret3.0);
+            let ret_1 = veorq_u8(veorq_u8(veorq_u8(ret0.1, ret1.1), ret2.1), ret3.1);
+            let ret_2 = veorq_u8(veorq_u8(veorq_u8(ret0.2, ret1.2), ret2.2), ret3.2);
 
-            self.tag = gf_mul_modular((ret_0, ret_1));
+            self.tag = gf_mul_modular((ret_0, ret_1, ret_2));
         }
     }
 
@@ -190,6 +190,7 @@ impl GHash {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     #[test]
     fn test_ghash() {
         if !std::arch::is_aarch64_feature_detected!("aes") {
