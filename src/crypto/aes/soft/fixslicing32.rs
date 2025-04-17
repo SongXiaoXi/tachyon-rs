@@ -1,16 +1,19 @@
 
-/// 512-bit internal state
-pub(crate) type State = [u64; 8];
+/// 256-bit internal state
+pub(crate) type State = [u32; 8];
 
-pub(crate) type BatchBlocks = [[u8; 16]; 4];
+pub(crate) type BatchBlocks = [[u8; 16]; 2];
 
-pub(crate) type FixsliceKeys128 = [u64; 88];
+/// AES-128 round keys
+pub(crate) type FixsliceKeys128 = [u32; 88];
+
 
 /// Fully bitsliced AES-128 key schedule to match the fully-fixsliced representation.
 pub(crate) fn aes128_key_schedule(key: &[u8; 16]) -> FixsliceKeys128 {
-    let mut rkeys = [0u64; 88];
+    let mut rkeys = [0u32; 88];
 
-    bitslice(&mut rkeys[..8], key, key, key, key);
+    // bitslice(&mut rkeys[..8], key, key);
+    bitslice(unsafe {crate::utils::slice_to_array_mut(&mut rkeys)}, key, key);
 
     let mut rk_off = 0;
     #[crate::loop_unroll(rcon, 0, 10)]
@@ -59,14 +62,36 @@ pub(crate) fn aes128_key_schedule(key: &[u8; 16]) -> FixsliceKeys128 {
     rkeys
 }
 
+#[inline(always)]
+pub(crate) fn aes128_decrypt(rkeys: &FixsliceKeys128, blocks: &[[u8; 16]; 4]) -> [[u8; 16]; 4] {
+    let blocks0 = [blocks[0], blocks[1]];
+    let blocks1 = [blocks[2], blocks[3]];
+
+    let blocks0 = aes128_decrypt_impl(rkeys, &blocks0);
+    let blocks1 = aes128_decrypt_impl(rkeys, &blocks1);
+
+    [blocks0[0], blocks0[1], blocks1[0], blocks1[1]]
+}
+
+#[inline(always)]
+pub(crate) fn aes128_encrypt(rkeys: &FixsliceKeys128, blocks: &[[u8; 16]; 4]) -> [[u8; 16]; 4] {
+    let blocks0 = [blocks[0], blocks[1]];
+    let blocks1 = [blocks[2], blocks[3]];
+
+    let blocks0 = aes128_encrypt_impl(rkeys, &blocks0);
+    let blocks1 = aes128_encrypt_impl(rkeys, &blocks1);
+
+    [blocks0[0], blocks0[1], blocks1[0], blocks1[1]]
+}
+
 /// Fully-fixsliced AES-128 decryption (the InvShiftRows is completely omitted).
 ///
 /// Decrypts four blocks in-place and in parallel.
 #[inline(always)]
-pub(crate) fn aes128_decrypt(rkeys: &FixsliceKeys128, blocks: &BatchBlocks) -> BatchBlocks {
-    let mut state = State::default();
+pub(crate) fn aes128_decrypt_impl(rkeys: &FixsliceKeys128, blocks: &BatchBlocks) -> BatchBlocks {
+    let mut state = [0u32; 8];
 
-    bitslice(&mut state, &blocks[0], &blocks[1], &blocks[2], &blocks[3]);
+    bitslice(&mut state, &blocks[0], &blocks[1]);
 
     add_round_key(&mut state, &rkeys[80..]);
     inv_sub_bytes(&mut state);
@@ -120,10 +145,10 @@ pub(crate) fn aes128_decrypt(rkeys: &FixsliceKeys128, blocks: &BatchBlocks) -> B
 ///
 /// Encrypts four blocks in-place and in parallel.
 #[inline(always)]
-pub(crate) fn aes128_encrypt(rkeys: &FixsliceKeys128, blocks: &BatchBlocks) -> BatchBlocks {
-    let mut state = State::default();
+pub(crate) fn aes128_encrypt_impl(rkeys: &FixsliceKeys128, blocks: &BatchBlocks) -> BatchBlocks {
+    let mut state = [0u32; 8];
 
-    bitslice(&mut state, &blocks[0], &blocks[1], &blocks[2], &blocks[3]);
+    bitslice(&mut state, &blocks[0], &blocks[1]);
 
     add_round_key(&mut state, &rkeys[..8]);
 
@@ -173,10 +198,10 @@ pub(crate) fn aes128_encrypt(rkeys: &FixsliceKeys128, blocks: &BatchBlocks) -> B
     inv_bitslice(&state)
 }
 
-/// Note that the 4 bitwise NOT (^= 0xffffffffffffffff) are accounted for here so that it is a true
+/// Note that the 4 bitwise NOT (^= 0xffffffff) are accounted for here so that it is a true
 /// inverse of 'sub_bytes'.
 #[inline(always)]
-fn inv_sub_bytes(state: &mut [u64]) {
+fn inv_sub_bytes(state: &mut [u32]) {
     debug_assert_eq!(state.len(), 8);
 
     // Scheduled using https://github.com/Ko-/aes-armcortexm/tree/public/scheduler
@@ -384,9 +409,9 @@ fn inv_sub_bytes(state: &mut [u64]) {
 ///
 /// See: <http://www.cs.yale.edu/homes/peralta/CircuitStuff/SLP_AES_113.txt>
 ///
-/// Note that the 4 bitwise NOT (^= 0xffffffffffffffff) are moved to the key schedule.
+/// Note that the 4 bitwise NOT (^= 0xffffffff) are moved to the key schedule.
 #[inline(always)]
-fn sub_bytes(state: &mut [u64]) {
+fn sub_bytes(state: &mut [u32]) {
     debug_assert_eq!(state.len(), 8);
 
     // Scheduled using https://github.com/Ko-/aes-armcortexm/tree/public/scheduler
@@ -559,12 +584,12 @@ fn sub_bytes(state: &mut [u64]) {
 
 /// NOT operations that are omitted in S-box
 #[inline(always)]
-fn sub_bytes_nots(state: &mut [u64]) {
+fn sub_bytes_nots(state: &mut [u32]) {
     debug_assert_eq!(state.len(), 8);
-    state[0] ^= 0xffffffffffffffff;
-    state[1] ^= 0xffffffffffffffff;
-    state[5] ^= 0xffffffffffffffff;
-    state[6] ^= 0xffffffffffffffff;
+    state[0] ^= 0xffffffff;
+    state[1] ^= 0xffffffff;
+    state[5] ^= 0xffffffff;
+    state[6] ^= 0xffffffff;
 }
 
 /// Computation of the MixColumns transformation in the fixsliced representation, with different
@@ -578,8 +603,8 @@ macro_rules! define_mix_columns {
         $first_rotate:path,
         $second_rotate:path
     ) => {
-        #[inline(always)]
         #[rustfmt::skip]
+        #[inline(always)]
         fn $name(state: &mut State) {
             let (a0, a1, a2, a3, a4, a5, a6, a7) = (
                 state[0], state[1], state[2], state[3], state[4], state[5], state[6], state[7]
@@ -703,62 +728,61 @@ define_mix_columns!(
 );
 
 #[inline(always)]
-fn delta_swap_1(a: &mut u64, shift: u32, mask: u64) {
+fn delta_swap_1(a: &mut u32, shift: u32, mask: u32) {
     let t = (*a ^ ((*a) >> shift)) & mask;
     *a ^= t ^ (t << shift);
 }
 
 #[inline(always)]
-fn delta_swap_2(a: &mut u64, b: &mut u64, shift: u32, mask: u64) {
+fn delta_swap_2(a: &mut u32, b: &mut u32, shift: u32, mask: u32) {
     let t = (*a ^ ((*b) >> shift)) & mask;
     *a ^= t;
     *b ^= t << shift;
 }
 
-/* */
 /// Applies ShiftRows once on an AES state (or key).
 #[cfg(not(aes_compact))]
 #[inline(always)]
-fn shift_rows_1(state: &mut [u64]) {
+fn shift_rows_1(state: &mut [u32]) {
     debug_assert_eq!(state.len(), 8);
     for x in state.iter_mut() {
-        delta_swap_1(x, 8, 0x00f000ff000f0000);
-        delta_swap_1(x, 4, 0x0f0f00000f0f0000);
+        delta_swap_1(x, 4, 0x0c0f0300);
+        delta_swap_1(x, 2, 0x33003300);
     }
 }
 
 /// Applies ShiftRows twice on an AES state (or key).
 #[inline(always)]
-fn shift_rows_2(state: &mut [u64]) {
+fn shift_rows_2(state: &mut [u32]) {
     debug_assert_eq!(state.len(), 8);
     for x in state.iter_mut() {
-        delta_swap_1(x, 8, 0x00ff000000ff0000);
+        delta_swap_1(x, 4, 0x0f000f00);
     }
 }
 
 /// Applies ShiftRows three times on an AES state (or key).
 #[inline(always)]
-fn shift_rows_3(state: &mut [u64]) {
+fn shift_rows_3(state: &mut [u32]) {
     debug_assert_eq!(state.len(), 8);
     for x in state.iter_mut() {
-        delta_swap_1(x, 8, 0x000f00ff00f00000);
-        delta_swap_1(x, 4, 0x0f0f00000f0f0000);
+        delta_swap_1(x, 4, 0x030f0c00);
+        delta_swap_1(x, 2, 0x33003300);
     }
 }
 
 #[inline(always)]
-fn inv_shift_rows_1(state: &mut [u64]) {
+fn inv_shift_rows_1(state: &mut [u32]) {
     shift_rows_3(state);
 }
 
 #[inline(always)]
-fn inv_shift_rows_2(state: &mut [u64]) {
+fn inv_shift_rows_2(state: &mut [u32]) {
     shift_rows_2(state);
 }
 
 #[cfg(not(aes_compact))]
 #[inline(always)]
-fn inv_shift_rows_3(state: &mut [u64]) {
+fn inv_shift_rows_3(state: &mut [u32]) {
     shift_rows_1(state);
 }
 
@@ -771,86 +795,68 @@ fn inv_shift_rows_3(state: &mut [u64]) {
 /// The `idx_ror` parameter refers to the rotation value, which varies between the
 /// different key schedules.
 #[inline(always)]
-fn xor_columns(rkeys: &mut [u64], offset: usize, idx_xor: usize, idx_ror: u32) {
+fn xor_columns(rkeys: &mut [u32], offset: usize, idx_xor: usize, idx_ror: u32) {
     #[crate::loop_unroll(i, 0, 8)]
     fn loop_unroll() {
         let off_i = offset + i;
-        let rk = rkeys[off_i - idx_xor] ^ (0x000f000f000f000f & ror(rkeys[off_i], idx_ror));
-        rkeys[off_i] = rk
-            ^ (0xfff0fff0fff0fff0 & (rk << 4))
-            ^ (0xff00ff00ff00ff00 & (rk << 8))
-            ^ (0xf000f000f000f000 & (rk << 12));
+        let rk = rkeys[off_i - idx_xor] ^ (0x03030303 & ror(rkeys[off_i], idx_ror));
+        rkeys[off_i] =
+            rk ^ (0xfcfcfcfc & (rk << 2)) ^ (0xf0f0f0f0 & (rk << 4)) ^ (0xc0c0c0c0 & (rk << 6));
     }
 }
 
-/// Bitslice four 128-bit input blocks input0, input1, input2, input3 into a 512-bit internal state.
+/// Bitslice two 128-bit input blocks input0, input1 into a 256-bit internal state.
 #[inline(always)]
-fn bitslice(output: &mut [u64], input0: &[u8], input1: &[u8], input2: &[u8], input3: &[u8]) {
+fn bitslice(output: &mut [u32; 8], input0: &[u8; 16], input1: &[u8; 16]) {
     debug_assert_eq!(output.len(), 8);
     debug_assert_eq!(input0.len(), 16);
     debug_assert_eq!(input1.len(), 16);
-    debug_assert_eq!(input2.len(), 16);
-    debug_assert_eq!(input3.len(), 16);
 
-    // Bitslicing is a bit index manipulation. 512 bits of data means each bit is positioned at a
-    // 9-bit index. AES data is 4 blocks, each one a 4x4 column-major matrix of bytes, so the
+    // Bitslicing is a bit index manipulation. 256 bits of data means each bit is positioned at an
+    // 8-bit index. AES data is 2 blocks, each one a 4x4 column-major matrix of bytes, so the
     // index is initially ([b]lock, [c]olumn, [r]ow, [p]osition):
-    //     b1 b0 c1 c0 r1 r0 p2 p1 p0
+    //     b0 c1 c0 r1 r0 p2 p1 p0
     //
     // The desired bitsliced data groups first by bit position, then row, column, block:
-    //     p2 p1 p0 r1 r0 c1 c0 b1 b0
-    #[inline(always)]
-    #[rustfmt::skip]
-    fn read_reordered(input: &[u8]) -> u64 {
-        (u64::from(input[0x0])        ) |
-        (u64::from(input[0x1]) << 0x10) |
-        (u64::from(input[0x2]) << 0x20) |
-        (u64::from(input[0x3]) << 0x30) |
-        (u64::from(input[0x8]) << 0x08) |
-        (u64::from(input[0x9]) << 0x18) |
-        (u64::from(input[0xa]) << 0x28) |
-        (u64::from(input[0xb]) << 0x38)
-    }
+    //     p2 p1 p0 r1 r0 c1 c0 b0
 
-    // Reorder each block's bytes on input
-    //     __ __ c1 c0 r1 r0 __ __ __ => __ __ c0 r1 r0 c1 __ __ __
-    // Reorder by relabeling (note the order of input)
-    //     b1 b0 c0 __ __ __ __ __ __ => c0 b1 b0 __ __ __ __ __ __
-    let mut t0 = read_reordered(&input0[0x00..0x0c]);
-    let mut t4 = read_reordered(&input0[0x04..0x10]);
-    let mut t1 = read_reordered(&input1[0x00..0x0c]);
-    let mut t5 = read_reordered(&input1[0x04..0x10]);
-    let mut t2 = read_reordered(&input2[0x00..0x0c]);
-    let mut t6 = read_reordered(&input2[0x04..0x10]);
-    let mut t3 = read_reordered(&input3[0x00..0x0c]);
-    let mut t7 = read_reordered(&input3[0x04..0x10]);
+    // Interleave the columns on input (note the order of input)
+    //     b0 c1 c0 __ __ __ __ __ => c1 c0 b0 __ __ __ __ __
+    let mut t0 = u32::from_le_bytes(input0[0x00..0x04].try_into().unwrap());
+    let mut t2 = u32::from_le_bytes(input0[0x04..0x08].try_into().unwrap());
+    let mut t4 = u32::from_le_bytes(input0[0x08..0x0c].try_into().unwrap());
+    let mut t6 = u32::from_le_bytes(input0[0x0c..0x10].try_into().unwrap());
+    let mut t1 = u32::from_le_bytes(input1[0x00..0x04].try_into().unwrap());
+    let mut t3 = u32::from_le_bytes(input1[0x04..0x08].try_into().unwrap());
+    let mut t5 = u32::from_le_bytes(input1[0x08..0x0c].try_into().unwrap());
+    let mut t7 = u32::from_le_bytes(input1[0x0c..0x10].try_into().unwrap());
 
-    // Bit Index Swap 6 <-> 0:
-    //     __ __ b0 __ __ __ __ __ p0 => __ __ p0 __ __ __ __ __ b0
-    let m0 = 0x5555555555555555;
+    // Bit Index Swap 5 <-> 0:
+    //     __ __ b0 __ __ __ __ p0 => __ __ p0 __ __ __ __ b0
+    let m0 = 0x55555555;
     delta_swap_2(&mut t1, &mut t0, 1, m0);
     delta_swap_2(&mut t3, &mut t2, 1, m0);
     delta_swap_2(&mut t5, &mut t4, 1, m0);
     delta_swap_2(&mut t7, &mut t6, 1, m0);
 
-    // Bit Index Swap 7 <-> 1:
-    //     __ b1 __ __ __ __ __ p1 __ => __ p1 __ __ __ __ __ b1 __
-    let m1 = 0x3333333333333333;
+    // Bit Index Swap 6 <-> 1:
+    //     __ c0 __ __ __ __ p1 __ => __ p1 __ __ __ __ c0 __
+    let m1 = 0x33333333;
     delta_swap_2(&mut t2, &mut t0, 2, m1);
     delta_swap_2(&mut t3, &mut t1, 2, m1);
     delta_swap_2(&mut t6, &mut t4, 2, m1);
     delta_swap_2(&mut t7, &mut t5, 2, m1);
 
-    // Bit Index Swap 8 <-> 2:
-    //     c0 __ __ __ __ __ p2 __ __ => p2 __ __ __ __ __ c0 __ __
-    let m2 = 0x0f0f0f0f0f0f0f0f;
+    // Bit Index Swap 7 <-> 2:
+    //     c1 __ __ __ __ p2 __ __ => p2 __ __ __ __ c1 __ __
+    let m2 = 0x0f0f0f0f;
     delta_swap_2(&mut t4, &mut t0, 4, m2);
     delta_swap_2(&mut t5, &mut t1, 4, m2);
     delta_swap_2(&mut t6, &mut t2, 4, m2);
     delta_swap_2(&mut t7, &mut t3, 4, m2);
 
     // Final bitsliced bit index, as desired:
-    //     p2 p1 p0 r1 r0 c1 c0 b1 b0
+    //     p2 p1 p0 r1 r0 c1 c0 b0
     output[0] = t0;
     output[1] = t1;
     output[2] = t2;
@@ -861,18 +867,18 @@ fn bitslice(output: &mut [u64], input0: &[u8], input1: &[u8], input2: &[u8], inp
     output[7] = t7;
 }
 
-/// Un-bitslice a 512-bit internal state into four 128-bit blocks of output.
+/// Un-bitslice a 256-bit internal state into two 128-bit blocks of output.
 #[inline(always)]
-fn inv_bitslice(input: &[u64]) -> BatchBlocks {
+fn inv_bitslice(input: &[u32; 8]) -> BatchBlocks {
     debug_assert_eq!(input.len(), 8);
 
-    // Unbitslicing is a bit index manipulation. 512 bits of data means each bit is positioned at
-    // a 9-bit index. AES data is 4 blocks, each one a 4x4 column-major matrix of bytes, so the
+    // Unbitslicing is a bit index manipulation. 256 bits of data means each bit is positioned at
+    // an 8-bit index. AES data is 2 blocks, each one a 4x4 column-major matrix of bytes, so the
     // desired index for the output is ([b]lock, [c]olumn, [r]ow, [p]osition):
-    //     b1 b0 c1 c0 r1 r0 p2 p1 p0
+    //     b0 c1 c0 r1 r0 p2 p1 p0
     //
     // The initially bitsliced data groups first by bit position, then row, column, block:
-    //     p2 p1 p0 r1 r0 c1 c0 b1 b0
+    //     p2 p1 p0 r1 r0 c1 c0 b0
 
     let mut t0 = input[0];
     let mut t1 = input[1];
@@ -885,64 +891,53 @@ fn inv_bitslice(input: &[u64]) -> BatchBlocks {
 
     // TODO: these bit index swaps are identical to those in 'packing'
 
-    // Bit Index Swap 6 <-> 0:
-    //     __ __ p0 __ __ __ __ __ b0 => __ __ b0 __ __ __ __ __ p0
-    let m0 = 0x5555555555555555;
+    // Bit Index Swap 5 <-> 0:
+    //     __ __ p0 __ __ __ __ b0 => __ __ b0 __ __ __ __ p0
+    let m0 = 0x55555555;
     delta_swap_2(&mut t1, &mut t0, 1, m0);
     delta_swap_2(&mut t3, &mut t2, 1, m0);
     delta_swap_2(&mut t5, &mut t4, 1, m0);
     delta_swap_2(&mut t7, &mut t6, 1, m0);
 
-    // Bit Index Swap 7 <-> 1:
-    //     __ p1 __ __ __ __ __ b1 __ => __ b1 __ __ __ __ __ p1 __
-    let m1 = 0x3333333333333333;
+    // Bit Index Swap 6 <-> 1:
+    //     __ p1 __ __ __ __ c0 __ => __ c0 __ __ __ __ p1 __
+    let m1 = 0x33333333;
     delta_swap_2(&mut t2, &mut t0, 2, m1);
     delta_swap_2(&mut t3, &mut t1, 2, m1);
     delta_swap_2(&mut t6, &mut t4, 2, m1);
     delta_swap_2(&mut t7, &mut t5, 2, m1);
 
-    // Bit Index Swap 8 <-> 2:
-    //     p2 __ __ __ __ __ c0 __ __ => c0 __ __ __ __ __ p2 __ __
-    let m2 = 0x0f0f0f0f0f0f0f0f;
+    // Bit Index Swap 7 <-> 2:
+    //     p2 __ __ __ __ c1 __ __ => c1 __ __ __ __ p2 __ __
+    let m2 = 0x0f0f0f0f;
     delta_swap_2(&mut t4, &mut t0, 4, m2);
     delta_swap_2(&mut t5, &mut t1, 4, m2);
     delta_swap_2(&mut t6, &mut t2, 4, m2);
     delta_swap_2(&mut t7, &mut t3, 4, m2);
 
-    #[rustfmt::skip]
-    fn write_reordered(columns: u64, output: &mut [u8]) {
-        output[0x0] = (columns        ) as u8;
-        output[0x1] = (columns >> 0x10) as u8;
-        output[0x2] = (columns >> 0x20) as u8;
-        output[0x3] = (columns >> 0x30) as u8;
-        output[0x8] = (columns >> 0x08) as u8;
-        output[0x9] = (columns >> 0x18) as u8;
-        output[0xa] = (columns >> 0x28) as u8;
-        output[0xb] = (columns >> 0x38) as u8;
-    }
+    // De-interleave the columns on output (note the order of output)
+    //     c1 c0 b0 __ __ __ __ __ => b0 c1 c0 __ __ __ __ __
+    let output = unsafe { std::mem::transmute([
+        t0.to_le_bytes(),
+        t1.to_le_bytes(),
+        t2.to_le_bytes(),
+        t3.to_le_bytes(),
+        t4.to_le_bytes(),
+        t5.to_le_bytes(),
+        t6.to_le_bytes(),
+        t7.to_le_bytes(),
+    ])};
 
-    let mut output = BatchBlocks::default();
-    // Reorder by relabeling (note the order of output)
-    //     c0 b1 b0 __ __ __ __ __ __ => b1 b0 c0 __ __ __ __ __ __
-    // Reorder each block's bytes on output
-    //     __ __ c0 r1 r0 c1 __ __ __ => __ __ c1 c0 r1 r0 __ __ __
-    write_reordered(t0, &mut output[0][0x00..0x0c]);
-    write_reordered(t4, &mut output[0][0x04..0x10]);
-    write_reordered(t1, &mut output[1][0x00..0x0c]);
-    write_reordered(t5, &mut output[1][0x04..0x10]);
-    write_reordered(t2, &mut output[2][0x00..0x0c]);
-    write_reordered(t6, &mut output[2][0x04..0x10]);
-    write_reordered(t3, &mut output[3][0x00..0x0c]);
-    write_reordered(t7, &mut output[3][0x04..0x10]);
+
 
     // Final AES bit index, as desired:
-    //     b1 b0 c1 c0 r1 r0 p2 p1 p0
+    //     b0 c1 c0 r1 r0 p2 p1 p0
     output
 }
 
 /// Copy 32-bytes within the provided slice to an 8-byte offset
 #[inline(always)]
-fn memshift32(buffer: &mut [u64], src_offset: usize) {
+fn memshift32(buffer: &mut [u32], src_offset: usize) {
     debug_assert_eq!(src_offset % 8, 0);
 
     let dst_offset = src_offset + 8;
@@ -956,7 +951,7 @@ fn memshift32(buffer: &mut [u64], src_offset: usize) {
 /// XOR the round key to the internal state. The round keys are expected to be
 /// pre-computed and to be packed in the fixsliced representation.
 #[inline(always)]
-fn add_round_key(state: &mut State, rkey: &[u64]) {
+fn add_round_key(state: &mut State, rkey: &[u32]) {
     debug_assert_eq!(rkey.len(), 8);
     #[crate::loop_unroll(i, 0, 8)]
     fn loop_unroll() {
@@ -965,56 +960,56 @@ fn add_round_key(state: &mut State, rkey: &[u64]) {
 }
 
 #[inline(always)]
-fn add_round_constant_bit(state: &mut [u64], bit: usize) {
-    state[bit] ^= 0x00000000f0000000;
+fn add_round_constant_bit(state: &mut [u32], bit: usize) {
+    state[bit] ^= 0x0000c000;
 }
 
 #[inline(always)]
-fn ror(x: u64, y: u32) -> u64 {
+fn ror(x: u32, y: u32) -> u32 {
     x.rotate_right(y)
 }
 
 #[inline(always)]
 fn ror_distance(rows: u32, cols: u32) -> u32 {
-    (rows << 4) + (cols << 2)
+    (rows << 3) + (cols << 1)
 }
 
 #[inline(always)]
-fn rotate_rows_1(x: u64) -> u64 {
+fn rotate_rows_1(x: u32) -> u32 {
     ror(x, ror_distance(1, 0))
 }
 
 #[inline(always)]
-fn rotate_rows_2(x: u64) -> u64 {
+fn rotate_rows_2(x: u32) -> u32 {
     ror(x, ror_distance(2, 0))
 }
 
 #[inline(always)]
 #[rustfmt::skip]
-fn rotate_rows_and_columns_1_1(x: u64) -> u64 {
-    (ror(x, ror_distance(1, 1)) & 0x0fff0fff0fff0fff) |
-    (ror(x, ror_distance(0, 1)) & 0xf000f000f000f000)
+fn rotate_rows_and_columns_1_1(x: u32) -> u32 {
+    (ror(x, ror_distance(1, 1)) & 0x3f3f3f3f) |
+    (ror(x, ror_distance(0, 1)) & 0xc0c0c0c0)
 }
 
 #[cfg(not(aes_compact))]
 #[inline(always)]
 #[rustfmt::skip]
-fn rotate_rows_and_columns_1_2(x: u64) -> u64 {
-    (ror(x, ror_distance(1, 2)) & 0x00ff00ff00ff00ff) |
-    (ror(x, ror_distance(0, 2)) & 0xff00ff00ff00ff00)
+fn rotate_rows_and_columns_1_2(x: u32) -> u32 {
+    (ror(x, ror_distance(1, 2)) & 0x0f0f0f0f) |
+    (ror(x, ror_distance(0, 2)) & 0xf0f0f0f0)
 }
 
 #[cfg(not(aes_compact))]
 #[inline(always)]
 #[rustfmt::skip]
-fn rotate_rows_and_columns_1_3(x: u64) -> u64 {
-    (ror(x, ror_distance(1, 3)) & 0x000f000f000f000f) |
-    (ror(x, ror_distance(0, 3)) & 0xfff0fff0fff0fff0)
+fn rotate_rows_and_columns_1_3(x: u32) -> u32 {
+    (ror(x, ror_distance(1, 3)) & 0x03030303) |
+    (ror(x, ror_distance(0, 3)) & 0xfcfcfcfc)
 }
 
 #[inline(always)]
 #[rustfmt::skip]
-fn rotate_rows_and_columns_2_2(x: u64) -> u64 {
-    (ror(x, ror_distance(2, 2)) & 0x00ff00ff00ff00ff) |
-    (ror(x, ror_distance(1, 2)) & 0xff00ff00ff00ff00)
+fn rotate_rows_and_columns_2_2(x: u32) -> u32 {
+    (ror(x, ror_distance(2, 2)) & 0x0f0f0f0f) |
+    (ror(x, ror_distance(1, 2)) & 0xf0f0f0f0)
 }
