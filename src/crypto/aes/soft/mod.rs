@@ -1,4 +1,5 @@
-#[path = "fixslicing64.rs"]
+#[cfg_attr(target_pointer_width = "32", path = "fixslicing32.rs")]
+#[cfg_attr(target_pointer_width = "64", path = "fixslicing64.rs")]
 pub(crate) mod fixslicing;
 
 #[allow(non_upper_case_globals)]
@@ -383,6 +384,7 @@ pub struct AES128 {
 impl AES128 {
     pub const BLOCK_LEN: usize = 16;
     pub const KEY_LEN: usize = 16;
+    pub(crate) const IS_SOFT: bool = true;
 
     #[inline(always)]
     pub fn new(key: [u8; 16]) -> Self {
@@ -428,6 +430,21 @@ impl AES128 {
         *data1 = blocks[1];
         *data2 = blocks[2];
         *data3 = blocks[3];
+    }
+
+    #[inline(always)]
+    pub(crate) fn encrypt_4_blocks_xor(&self, data0: &[u8; 16], data1: &[u8; 16], data2: &[u8; 16], data3: &[u8; 16], text0: &mut [u8; 16], text1: &mut [u8; 16], text2: &mut [u8; 16], text3: &mut [u8; 16]) {
+        let mut data0 = *data0;
+        let mut data1 = *data1;
+        let mut data2 = *data2;
+        let mut data3 = *data3;
+
+        self.encrypt_4_blocks(&mut data0, &mut data1, &mut data2, &mut data3);
+
+        crate::utils::xor::xor_si128_inplace(text0, &data0);
+        crate::utils::xor::xor_si128_inplace(text1, &data1);
+        crate::utils::xor::xor_si128_inplace(text2, &data2);
+        crate::utils::xor::xor_si128_inplace(text3, &data3);
     }
 
     #[inline(always)]
