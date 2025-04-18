@@ -1,3 +1,4 @@
+use crate::_MM_SHUFFLE;
 #[cfg(target_arch = "x86")]
 use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
@@ -11,6 +12,10 @@ pub struct GHash {
     key2: __m128i,
     key3: __m128i,
     key4: __m128i,
+    fold_key: __m128i,
+    fold_key2: __m128i,
+    fold_key3: __m128i,
+    fold_key4: __m128i,
 }
 
 #[macro_use]
@@ -67,8 +72,16 @@ macro_rules! gf_mul {
     }
 }
 
+/// Multiply four elements and reduce them modulo the irreducible polynomial
+/// 
+/// # Safety
+/// requires target_feature="sse2,ssse3,pclmulqdq"
 macro_rules! gf_mul_reduce_4 {
-    ($x1:expr, $x2:expr, $x3:expr, $x4:expr, $h1:expr, $h2:expr, $h3:expr, $h4:expr) => {
+    (
+        $x1:expr, $x2:expr, $x3:expr, $x4:expr,
+        $h1:expr, $h2:expr, $h3:expr, $h4:expr,
+        $fold_key:expr, $fold_key2:expr, $fold_key3:expr, $fold_key4:expr$(,)?
+    ) => {
         {
             let (h1_x1_lo, h1_x1_hi);
         let (h2_x2_lo, h2_x2_hi);
@@ -92,32 +105,27 @@ macro_rules! gf_mul_reduce_4 {
         h4_x4_hi = _mm_clmulepi64_si128($h4, $x4, 0x11);
 
         hi = _mm_xor_si128(h1_x1_hi, h2_x2_hi);
-        hi = _mm_xor_si128(hi, _mm_xor_si128(h3_x3_hi, h4_x4_hi));
+        hi = _mm_xor_si128(hi, h3_x3_hi);
+        hi = _mm_xor_si128(hi, h4_x4_hi);
 
-        tmp0 = _mm_shuffle_epi32($h1, 78);
-        tmp4 = _mm_shuffle_epi32($x1, 78);
-        tmp0 = _mm_xor_si128(tmp0, $h1);
-        tmp4 = _mm_xor_si128(tmp4, $x1);
-        tmp1 = _mm_shuffle_epi32($h2, 78);
-        tmp5 = _mm_shuffle_epi32($x2, 78);
-        tmp1 = _mm_xor_si128(tmp1, $h2);
-        tmp5 = _mm_xor_si128(tmp5, $x2);
-        tmp2 = _mm_shuffle_epi32($h3, 78);
-        tmp6 = _mm_shuffle_epi32($x3, 78);
-        tmp2 = _mm_xor_si128(tmp2, $h3);
-        tmp6 = _mm_xor_si128(tmp6, $x3);
-        tmp3 = _mm_shuffle_epi32($h4, 78);
-        tmp7 = _mm_shuffle_epi32($x4, 78);
-        tmp3 = _mm_xor_si128(tmp3, $h4);
-        tmp7 = _mm_xor_si128(tmp7, $x4);
+        tmp0 = $fold_key;
+        tmp4 = _mm_xor_si128(_mm_shuffle_epi32($x1, crate::_MM_SHUFFLE(1, 0, 3, 2)), $x1);
+        tmp1 = $fold_key2;
+        tmp5 = _mm_xor_si128(_mm_shuffle_epi32($x2, crate::_MM_SHUFFLE(1, 0, 3, 2)), $x2);
+        tmp2 = $fold_key3;
+        tmp6 = _mm_xor_si128(_mm_shuffle_epi32($x3, crate::_MM_SHUFFLE(1, 0, 3, 2)), $x3);
+        tmp3 = $fold_key4;
+        tmp7 = _mm_xor_si128(_mm_shuffle_epi32($x4, crate::_MM_SHUFFLE(1, 0, 3, 2)), $x4);
 
         tmp0 = _mm_clmulepi64_si128(tmp0, tmp4, 0x00);
         tmp1 = _mm_clmulepi64_si128(tmp1, tmp5, 0x00);
         tmp2 = _mm_clmulepi64_si128(tmp2, tmp6, 0x00);
         tmp3 = _mm_clmulepi64_si128(tmp3, tmp7, 0x00);
 
-        tmp0 = _mm_xor_si128(tmp0, _mm_xor_si128(_mm_xor_si128(lo, hi), tmp3));
-        tmp0 = _mm_xor_si128(tmp0, _mm_xor_si128(tmp1, tmp2));
+        tmp0 = _mm_xor_si128(tmp0, tmp1);
+        tmp0 = _mm_xor_si128(tmp0, tmp2);
+        tmp0 = _mm_xor_si128(tmp0, tmp3);
+        tmp0 = _mm_xor_si128(tmp0, _mm_xor_si128(lo, hi));
 
         tmp4 = _mm_slli_si128(tmp0, 8);
         tmp0 = _mm_srli_si128(tmp0, 8);
@@ -133,11 +141,9 @@ macro_rules! gf_mul_reduce_4 {
         tmp3 = _mm_slli_epi32(tmp3, 1);
         tmp6 = _mm_slli_epi32(tmp6, 1);
 
-        tmp9 = _mm_srli_si128(tmp7, 12);
-        tmp8 = _mm_slli_si128(tmp8, 4);
+        tmp9 = _mm_alignr_epi8(tmp8, tmp7, 12);
         tmp7 = _mm_slli_si128(tmp7, 4);
         tmp3 = _mm_or_si128(tmp3, tmp7);
-        tmp6 = _mm_or_si128(tmp6, tmp8);
         tmp6 = _mm_or_si128(tmp6, tmp9);
 
         tmp7 = _mm_slli_epi32(tmp3, 31);
@@ -145,15 +151,17 @@ macro_rules! gf_mul_reduce_4 {
         tmp9 = _mm_slli_epi32(tmp3, 25);
 
         tmp7 = _mm_xor_si128(tmp7, _mm_xor_si128(tmp8, tmp9));
-        tmp8 = _mm_srli_si128(tmp7, 4);
+        tmp8 = tmp7;
+        tmp9 = tmp3;
         tmp7 = _mm_slli_si128(tmp7, 12);
         tmp3 = _mm_xor_si128(tmp3, tmp7);
 
         tmp2 = _mm_srli_epi32(tmp3, 1);
         tmp4 = _mm_srli_epi32(tmp3, 2);
         tmp5 = _mm_srli_epi32(tmp3, 7);
+        tmp3 = _mm_xor_si128(tmp9, _mm_alignr_epi8(tmp8, tmp8, 4));
         tmp2 = _mm_xor_si128(tmp2, _mm_xor_si128(tmp4, tmp5));
-        _mm_xor_si128(_mm_xor_si128(tmp2, tmp3), _mm_xor_si128(tmp8, tmp6))
+        _mm_xor_si128(tmp2, _mm_xor_si128(tmp3, tmp6))
         }
     }
 }
@@ -167,16 +175,10 @@ impl GHash {
     pub const KEY_LEN: usize = 16;
     pub const BLOCK_LEN: usize = 16;
     pub const TAG_LEN: usize = 16;
-
-    #[inline(always)]
-    pub fn new(key: &[u8; 16]) -> Self {
-        unsafe { Self::new_simd(key) }
-    }
+    pub(crate) const IS_SOFT: bool = false;
 
     #[inline]
-    unsafe fn new_simd(key: &[u8; Self::KEY_LEN]) -> Self {
-        let key = key.clone();
-
+    pub fn new(key: &[u8; 16]) -> Self {
         let tag = _mm_setzero_si128();
         let vm = _mm_setr_epi8(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
         let key = _mm_shuffle_epi8(_mm_loadu_si128(key.as_ptr() as *const __m128i), vm);
@@ -184,9 +186,14 @@ impl GHash {
         let key2 = Self::gf_mul(key, key);
         let key3 = Self::gf_mul(key2, key);
         let key4 = Self::gf_mul(key2, key2);
+
+        let fold_key = _mm_xor_si128(_mm_shuffle_epi32(key, _MM_SHUFFLE(1, 0, 3, 2)), key);
+        let fold_key2 = _mm_xor_si128(_mm_shuffle_epi32(key2, _MM_SHUFFLE(1, 0, 3, 2)), key2);
+        let fold_key3 = _mm_xor_si128(_mm_shuffle_epi32(key3, _MM_SHUFFLE(1, 0, 3, 2)), key3);
+        let fold_key4 = _mm_xor_si128(_mm_shuffle_epi32(key4, _MM_SHUFFLE(1, 0, 3, 2)), key4);
         
 
-        Self { key, buf: tag, key2, key3, key4 }
+        Self { key, buf: tag, key2, key3, key4, fold_key, fold_key2, fold_key3, fold_key4 }
     }
 
     #[inline]
@@ -197,27 +204,14 @@ impl GHash {
         self.buf = Self::gf_mul(self.key, b);
     }
 
-    // Performing Ghash Using Algorithms 1 and 5 (C)
     #[inline]
     unsafe fn gf_mul(a: __m128i, b: __m128i) -> __m128i {
         gf_mul!(a, b)
     }
 
     #[inline]
-    pub(crate) unsafe fn gf_mul_reduce_4(
-        x1: __m128i, x2: __m128i, x3: __m128i, x4: __m128i,
-        h1: __m128i, h2: __m128i, h3: __m128i, h4: __m128i,
-    ) -> __m128i {
-        gf_mul_reduce_4!(x1, x2, x3, x4, h1, h2, h3, h4)
-    }
-
-    #[inline]
     pub fn update(&mut self, m: &[u8]) {
         let mut mlen = m.len();
-
-        if mlen == 0 {
-            return;
-        }
 
         let mut start = 0;
         while mlen >= Self::BLOCK_LEN {
@@ -250,7 +244,11 @@ impl GHash {
             let m1 = _mm_shuffle_epi8(m1, vm);
             let m2 = _mm_shuffle_epi8(m2, vm);
             let m3 = _mm_shuffle_epi8(m3, vm);
-            self.buf = Self::gf_mul_reduce_4(_mm_xor_si128(m0, self.buf), m1, m2, m3, self.key4, self.key3, self.key2, self.key);
+            self.buf = gf_mul_reduce_4!(
+                _mm_xor_si128(m0, self.buf), m1, m2, m3,
+                self.key4, self.key3, self.key2, self.key,
+                self.fold_key4, self.fold_key3, self.fold_key2, self.fold_key
+            );
         }
     }
 

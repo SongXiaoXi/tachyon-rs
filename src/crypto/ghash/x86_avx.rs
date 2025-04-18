@@ -1,3 +1,4 @@
+use crate::_MM_SHUFFLE;
 #[cfg(target_arch = "x86")]
 use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
@@ -11,6 +12,10 @@ pub struct GHash {
     key2: __m128i,
     key3: __m128i,
     key4: __m128i,
+    fold_key: __m128i,
+    fold_key2: __m128i,
+    fold_key3: __m128i,
+    fold_key4: __m128i,
 }
 
 use super::x86::gf_mul;
@@ -21,14 +26,10 @@ impl GHash {
     pub const KEY_LEN: usize = 16;
     pub const BLOCK_LEN: usize = 16;
     pub const TAG_LEN: usize = 16;
-
-    #[inline(always)]
-    pub fn new(key: &[u8; 16]) -> Self {
-        unsafe { Self::new_simd(key) }
-    }
+    pub(crate) const IS_SOFT: bool = false;
 
     #[inline]
-    unsafe fn new_simd(key: &[u8; Self::KEY_LEN]) -> Self {
+    pub fn new(key: &[u8; 16]) -> Self {
         let key = key.clone();
 
         let tag = _mm_setzero_si128();
@@ -39,8 +40,12 @@ impl GHash {
         let key3 = Self::gf_mul(key2, key);
         let key4 = Self::gf_mul(key2, key2);
         
+        let fold_key = _mm_xor_si128(_mm_shuffle_epi32(key, _MM_SHUFFLE(1, 0, 3, 2)), key);
+        let fold_key2 = _mm_xor_si128(_mm_shuffle_epi32(key2, _MM_SHUFFLE(1, 0, 3, 2)), key2);
+        let fold_key3 = _mm_xor_si128(_mm_shuffle_epi32(key3, _MM_SHUFFLE(1, 0, 3, 2)), key3);
+        let fold_key4 = _mm_xor_si128(_mm_shuffle_epi32(key4, _MM_SHUFFLE(1, 0, 3, 2)), key4);
 
-        Self { key, buf: tag, key2, key3, key4 }
+        Self { key, buf: tag, key2, key3, key4, fold_key, fold_key2, fold_key3, fold_key4 }
     }
 
     #[inline]
@@ -51,27 +56,14 @@ impl GHash {
         self.buf = Self::gf_mul(self.key, b);
     }
 
-    // Performing Ghash Using Algorithms 1 and 5 (C)
     #[inline]
     unsafe fn gf_mul(a: __m128i, b: __m128i) -> __m128i {
         gf_mul!(a, b)
     }
 
     #[inline]
-    pub(crate) unsafe fn gf_mul_reduce_4(
-        x1: __m128i, x2: __m128i, x3: __m128i, x4: __m128i,
-        h1: __m128i, h2: __m128i, h3: __m128i, h4: __m128i,
-    ) -> __m128i {
-        gf_mul_reduce_4!(x1, x2, x3, x4, h1, h2, h3, h4)
-    }
-
-    #[inline]
     pub fn update(&mut self, m: &[u8]) {
         let mut mlen = m.len();
-
-        if mlen == 0 {
-            return;
-        }
 
         let mut start = 0;
         while mlen >= Self::BLOCK_LEN {
@@ -104,7 +96,11 @@ impl GHash {
             let m1 = _mm_shuffle_epi8(m1, vm);
             let m2 = _mm_shuffle_epi8(m2, vm);
             let m3 = _mm_shuffle_epi8(m3, vm);
-            self.buf = Self::gf_mul_reduce_4(_mm_xor_si128(m0, self.buf), m1, m2, m3, self.key4, self.key3, self.key2, self.key);
+            self.buf = gf_mul_reduce_4!(
+                _mm_xor_si128(m0, self.buf), m1, m2, m3,
+                self.key4, self.key3, self.key2, self.key,
+                self.fold_key4, self.fold_key3, self.fold_key2, self.fold_key,
+            );
         }
     }
 
