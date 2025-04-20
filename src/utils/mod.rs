@@ -1,6 +1,13 @@
 pub(crate) mod xor;
 mod cpu_name;
 pub use cpu_name::cpu_name;
+mod disjoint_bitor;
+mod int_traits;
+pub use disjoint_bitor::disjoint_or;
+pub use int_traits::IntTraits;
+
+#[cfg(target_os = "android")]
+pub mod android;
 
 #[cfg(feature = "variable_time_eq")]
 #[inline(always)]
@@ -41,10 +48,10 @@ pub(crate) fn constant_time_is_zero(a: &[u8]) -> bool {
     x == 0
 }
 
-// detect hardware features everytimes
+/// detect hardware features every time
 #[macro_export]
 macro_rules! is_hw_feature_detected {
-    ($($arch:tt => ($($arch_feat:tt),+)),+) => {
+    ($($arch:tt => ($($arch_feat:tt),+)),+$(,)?) => {
         {
             let mut available = false;
             $(
@@ -94,7 +101,7 @@ macro_rules! is_hw_feature_detected {
             }
         }
     };
-    ($($feat:tt),+) => {
+    ($($feat:tt),+$(,)?) => {
         {
             let mut available = false;
             if cfg!(all($(target_feature = $feat),+)) {
@@ -105,7 +112,6 @@ macro_rules! is_hw_feature_detected {
                 #[allow(unused_assignments)]
                 let mut available = false;
                 $(
-                    #[cfg(target_arch = $arch)]
                     {
                         available = true;
                         #[cfg(any(target_arch = "x86"))]
@@ -140,6 +146,7 @@ macro_rules! is_hw_feature_detected {
     };
 }
 
+/// detect hardware features and cache the result
 #[macro_export]
 macro_rules! is_hw_feature_available {
     ($($arch:tt => ($($arch_feat:tt),+)),+) => {
@@ -292,15 +299,38 @@ pub fn human_readable_size(size: usize) -> String {
     format!("{} {}", cal_size, unit)
 }
 
+#[cfg(debug_assertions)]
 #[inline(always)]
 pub const unsafe fn unreachable() -> ! {
     unreachable!()
 }
 
+#[cfg(not(debug_assertions))]
+pub const unsafe fn unreachable() -> ! {
+    core::hint::unreachable_unchecked()
+}
+
+/// Informs the optimizer that a condition is always true.
+/// If the condition is false, the behavior is undefined.
 #[inline(always)]
 pub const unsafe fn assume(b: bool) {
     if !b {
         // SAFETY: the caller must guarantee the argument is never `false`
         unreachable()
+    }
+}
+
+/// Bitwise merge two values using a mask. If the mask bit is set, the
+/// corresponding bit in 'b' is used, otherwise the corresponding bit in 'a'
+/// is used.
+#[inline(always)]
+pub fn merge_bits<T>(a: T, b: T, mask: T) -> T
+where
+    T: IntTraits,
+{
+    // (a & !mask) | (b & mask)
+    // SAFETY: `mask` is disjoint with `!mask`
+    unsafe {
+        (a & !mask).disjoint_bitor(b & mask)
     }
 }

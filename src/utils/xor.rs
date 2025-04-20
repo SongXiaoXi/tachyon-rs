@@ -60,6 +60,7 @@ cfg_if! {
 }
 
 #[allow(dead_code)]
+#[inline(always)]
 fn xor_si128_inplace_generic(a: &mut [u8; 16], b: &[u8; 16]) {
     crate::const_loop!(i, 0, 16, {
         a[i] ^= b[i]
