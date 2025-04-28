@@ -1,5 +1,6 @@
 pub(crate) mod xor;
 mod cpu_name;
+
 pub use cpu_name::cpu_name;
 mod disjoint_bitor;
 mod int_traits;
@@ -274,6 +275,7 @@ pub(crate) const unsafe fn slice_to_array_at_mut<T, const N: usize>(slice: &mut 
     &mut *(slice.as_mut_ptr().add(index) as *mut [T; N])
 }
 
+/// Converts a size in bytes to a human-readable string. For benchmarking
 pub fn human_readable_size(size: usize) -> String {
     let mut cal_size = size;
     let mut unit = 0;
@@ -332,5 +334,36 @@ where
     // SAFETY: `mask` is disjoint with `!mask`
     unsafe {
         (a & !mask).disjoint_bitor(b & mask)
+    }
+}
+
+/// Copies `len` bytes from `src` to `dst`. This is useful for small copies
+/// where the compiler might optimize to a memcpy, which can be slower than
+/// a simple loop. This is also useful for copying data that is not aligned
+/// to the destination pointer. This function is unsafe because it does not
+/// check for alignment or out-of-bounds access.
+#[inline(always)]
+#[allow(asm_sub_register)]
+pub unsafe fn copy_small_bytes(
+    dst: *mut u8,
+    src: *const u8,
+    len: usize,
+) {
+    for i in 0..len {
+        let mut byte = *src.add(i);
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        std::arch::asm!(
+            "/* {byte} */",
+            byte = inout(reg_byte) byte,
+            options(pure, nomem, preserves_flags, nostack)
+        );
+        #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+        std::arch::asm!(
+            "/* {byte} */",
+            byte = inout(reg) byte,
+            options(pure, nomem, preserves_flags, nostack)
+        );
+
+        *dst.add(i) = byte;
     }
 }
