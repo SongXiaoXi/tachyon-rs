@@ -1,4 +1,3 @@
-use crate::_MM_SHUFFLE;
 #[cfg(target_arch = "x86")]
 use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
@@ -72,103 +71,97 @@ macro_rules! gf_mul {
     }
 }
 
-/// Multiply four elements and reduce them modulo the irreducible polynomial
-/// 
-/// # Safety
-/// requires target_feature="sse2,ssse3,pclmulqdq"
-macro_rules! gf_mul_reduce_4 {
-    (
-        $x1:expr, $x2:expr, $x3:expr, $x4:expr,
-        $h1:expr, $h2:expr, $h3:expr, $h4:expr,
-        $fold_key:expr, $fold_key2:expr, $fold_key3:expr, $fold_key4:expr$(,)?
-    ) => {
+macro_rules! gf_mul_prepare_k {
+    ($key:expr) => {
         {
-            let (h1_x1_lo, h1_x1_hi);
-        let (h2_x2_lo, h2_x2_hi);
-        let (h3_x3_lo, h3_x3_hi);
-        let (h4_x4_lo, h4_x4_hi);
-        let (mut lo, mut hi);
-        let (mut tmp0, mut tmp1, mut tmp2, mut tmp3, mut tmp4, mut tmp5, mut tmp6, mut tmp7, mut tmp8, mut tmp9);
+            let key = $key;
+            let t0 = _mm_set1_epi8(0xe1u8 as i8);
+            let t0_hi = _mm_slli_epi64(t0, 57);
+            let t0_lo = _mm_srli_epi64(t0, 63);
+            let t0 = _mm_unpacklo_epi64(t0_lo, t0_hi);
 
-        h1_x1_lo = _mm_clmulepi64_si128($h1, $x1, 0x00);
-        h2_x2_lo = _mm_clmulepi64_si128($h2, $x2, 0x00);
-        h3_x3_lo = _mm_clmulepi64_si128($h3, $x3, 0x00);
-        h4_x4_lo = _mm_clmulepi64_si128($h4, $x4, 0x00);
-
-        lo = _mm_xor_si128(h1_x1_lo, h2_x2_lo);
-        lo = _mm_xor_si128(lo, h3_x3_lo);
-        lo = _mm_xor_si128(lo, h4_x4_lo);
-
-        h1_x1_hi = _mm_clmulepi64_si128($h1, $x1, 0x11);
-        h2_x2_hi = _mm_clmulepi64_si128($h2, $x2, 0x11);
-        h3_x3_hi = _mm_clmulepi64_si128($h3, $x3, 0x11);
-        h4_x4_hi = _mm_clmulepi64_si128($h4, $x4, 0x11);
-
-        hi = _mm_xor_si128(h1_x1_hi, h2_x2_hi);
-        hi = _mm_xor_si128(hi, h3_x3_hi);
-        hi = _mm_xor_si128(hi, h4_x4_hi);
-
-        tmp0 = $fold_key;
-        tmp4 = _mm_xor_si128(_mm_shuffle_epi32($x1, crate::_MM_SHUFFLE(1, 0, 3, 2)), $x1);
-        tmp1 = $fold_key2;
-        tmp5 = _mm_xor_si128(_mm_shuffle_epi32($x2, crate::_MM_SHUFFLE(1, 0, 3, 2)), $x2);
-        tmp2 = $fold_key3;
-        tmp6 = _mm_xor_si128(_mm_shuffle_epi32($x3, crate::_MM_SHUFFLE(1, 0, 3, 2)), $x3);
-        tmp3 = $fold_key4;
-        tmp7 = _mm_xor_si128(_mm_shuffle_epi32($x4, crate::_MM_SHUFFLE(1, 0, 3, 2)), $x4);
-
-        tmp0 = _mm_clmulepi64_si128(tmp0, tmp4, 0x00);
-        tmp1 = _mm_clmulepi64_si128(tmp1, tmp5, 0x00);
-        tmp2 = _mm_clmulepi64_si128(tmp2, tmp6, 0x00);
-        tmp3 = _mm_clmulepi64_si128(tmp3, tmp7, 0x00);
-
-        tmp0 = _mm_xor_si128(tmp0, tmp1);
-        tmp0 = _mm_xor_si128(tmp0, tmp2);
-        tmp0 = _mm_xor_si128(tmp0, tmp3);
-        tmp0 = _mm_xor_si128(tmp0, _mm_xor_si128(lo, hi));
-
-        tmp4 = _mm_slli_si128(tmp0, 8);
-        tmp0 = _mm_srli_si128(tmp0, 8);
-
-        lo = _mm_xor_si128(tmp4, lo);
-        hi = _mm_xor_si128(tmp0, hi);
-
-        tmp3 = lo;
-        tmp6 = hi;
-
-        tmp7 = _mm_srli_epi32(tmp3, 31);
-        tmp8 = _mm_srli_epi32(tmp6, 31);
-        tmp3 = _mm_slli_epi32(tmp3, 1);
-        tmp6 = _mm_slli_epi32(tmp6, 1);
-
-        tmp9 = _mm_alignr_epi8(tmp8, tmp7, 12);
-        tmp7 = _mm_slli_si128(tmp7, 4);
-        tmp3 = _mm_or_si128(tmp3, tmp7);
-        tmp6 = _mm_or_si128(tmp6, tmp9);
-
-        tmp7 = _mm_slli_epi32(tmp3, 31);
-        tmp8 = _mm_slli_epi32(tmp3, 30);
-        tmp9 = _mm_slli_epi32(tmp3, 25);
-
-        tmp7 = _mm_xor_si128(tmp7, _mm_xor_si128(tmp8, tmp9));
-        tmp8 = tmp7;
-        tmp9 = tmp3;
-        tmp7 = _mm_slli_si128(tmp7, 12);
-        tmp3 = _mm_xor_si128(tmp3, tmp7);
-
-        tmp2 = _mm_srli_epi32(tmp3, 1);
-        tmp4 = _mm_srli_epi32(tmp3, 2);
-        tmp5 = _mm_srli_epi32(tmp3, 7);
-        tmp3 = _mm_xor_si128(tmp9, _mm_alignr_epi8(tmp8, tmp8, 4));
-        tmp2 = _mm_xor_si128(tmp2, _mm_xor_si128(tmp4, tmp5));
-        _mm_xor_si128(tmp2, _mm_xor_si128(tmp3, tmp6))
+            let t1 = _mm_shuffle_epi8(key, _mm_set1_epi8(15));
+            let t2 = _mm_srli_epi64(key, 63);
+            let t1 = _mm_cmplt_epi8(t1, _mm_setzero_si128());
+            let r = _mm_slli_epi64(key, 1);
+            let t0 = _mm_and_si128(t0, t1);
+            let r = _mm_xor_si128(r, _mm_slli_si128(t2, 8));
+            let r = _mm_xor_si128(r, t0);
+            r
         }
     }
 }
+
+macro_rules! fold_key {
+    ($key:expr) => {
+        {
+            let key = $key;
+            _mm_xor_si128(_mm_shuffle_epi32(key, crate::_MM_SHUFFLE(1, 0, 3, 2)), key)
+            // _mm_xor_si128(_mm_srli_si128(key, 8), key)
+        }
+    }
+}
+
+macro_rules! gf_mul_without_modular {
+    ($a:expr,$b:expr,$fold_a:expr) => {
+        {
+            let a = $a;
+            let b = $b;
+            let a_k = $fold_a;
+            let t0 = _mm_clmulepi64_si128(a, b, 0x00);
+            let t2 = _mm_clmulepi64_si128(a, b, 0x11);
+
+            let fold_b = fold_key!(b);
+            let t1 = _mm_clmulepi64_si128(a_k, fold_b, 0x00);
+            (t0, t1, t2)
+        }
+    };
+}
+
+macro_rules! gf_mul_modular {
+    ($a:expr) => {
+        {
+            let a = $a;
+            let (mut r0, mut r1, mut r2) = a;
+
+            r1 = _mm_xor_si128(r0, r1);
+            r1 = _mm_xor_si128(r1, r2);
+
+            r0 = _mm_xor_si128(r0, _mm_slli_si128(r1, 8));
+            // r2 = _mm_xor_si128(r2, _mm_srli_si128(r1, 8));
+
+            let mut tmp = _mm_slli_epi64(r0, 57);
+            tmp = _mm_xor_si128(tmp, _mm_slli_epi64(r0, 62));
+            tmp = _mm_xor_si128(tmp, _mm_slli_epi64(r0, 63));
+            r0 = _mm_xor_si128(r0, _mm_slli_si128(tmp, 8));
+            // r2 = _mm_xor_si128(r2, _mm_srli_si128(tmp, 8));
+
+            r2 = _mm_xor_si128(r2, _mm_srli_si128(_mm_xor_si128(r1, tmp), 8));
+
+            tmp = _mm_srli_epi64(r0, 1);
+            r2 = _mm_xor_si128(r2, r0);
+            r0 = _mm_xor_si128(r0, tmp);
+            tmp = _mm_srli_epi64(tmp, 6);
+            r0 = _mm_srli_epi64(r0, 1);
+            r0 = _mm_xor_si128(r0, r2);
+            r0 = _mm_xor_si128(r0, tmp);
+            r0
+        }
+    };
+}
+
 }
 
 pub(crate) use gf_mul;
-pub(crate) use gf_mul_reduce_4;
+pub(crate) use gf_mul_prepare_k;
+pub(crate) use gf_mul_without_modular;
+pub(crate) use gf_mul_modular;
+pub(crate) use fold_key;
+
+#[inline(always)]
+unsafe fn gf_mul2(a: __m128i, b: __m128i) -> __m128i {
+    gf_mul_modular!(gf_mul_without_modular!(a, b, fold_key!(a)))
+}
 
 #[unsafe_target_feature("sse2,ssse3,pclmulqdq")]
 impl GHash {
@@ -183,15 +176,21 @@ impl GHash {
         let vm = _mm_setr_epi8(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
         let key = _mm_shuffle_epi8(_mm_loadu_si128(key.as_ptr() as *const __m128i), vm);
 
-        let key2 = Self::gf_mul(key, key);
-        let key3 = Self::gf_mul(key2, key);
-        let key4 = Self::gf_mul(key2, key2);
+        let key_orig = key;
 
-        let fold_key = _mm_xor_si128(_mm_shuffle_epi32(key, _MM_SHUFFLE(1, 0, 3, 2)), key);
-        let fold_key2 = _mm_xor_si128(_mm_shuffle_epi32(key2, _MM_SHUFFLE(1, 0, 3, 2)), key2);
-        let fold_key3 = _mm_xor_si128(_mm_shuffle_epi32(key3, _MM_SHUFFLE(1, 0, 3, 2)), key3);
-        let fold_key4 = _mm_xor_si128(_mm_shuffle_epi32(key4, _MM_SHUFFLE(1, 0, 3, 2)), key4);
-        
+        let key = gf_mul_prepare_k!(key);
+        let key2 = gf_mul2(key, key_orig);
+        let key3 = gf_mul2(key, key2);
+        let key4 = gf_mul2(key, key3);
+
+        let key2 = gf_mul_prepare_k!(key2);
+        let key3 = gf_mul_prepare_k!(key3);
+        let key4 = gf_mul_prepare_k!(key4);
+
+        let fold_key = fold_key!(key);
+        let fold_key2 = fold_key!(key2);
+        let fold_key3 = fold_key!(key3);
+        let fold_key4 = fold_key!(key4);
 
         Self { key, buf: tag, key2, key3, key4, fold_key, fold_key2, fold_key3, fold_key4 }
     }
@@ -201,7 +200,7 @@ impl GHash {
         let vm = _mm_setr_epi8(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
         b = _mm_shuffle_epi8(b, vm);
         b = _mm_xor_si128(b, self.buf);
-        self.buf = Self::gf_mul(self.key, b);
+        self.buf = gf_mul2(self.key, b);
     }
 
     #[inline]
@@ -227,7 +226,16 @@ impl GHash {
             let mut last_block = [0u8; Self::BLOCK_LEN];
             // Magic: black_box is used to prevent the compiler from using bzero
             std::hint::black_box(last_block.as_mut_ptr());
-            last_block[..rlen].copy_from_slice(rem);
+            unsafe {
+                crate::utils::assume(rlen <= Self::BLOCK_LEN);
+
+                crate::utils::copy_small_bytes(
+                    last_block.as_mut_ptr(),
+                    rem.as_ptr(),
+                    rlen,
+                );
+            }
+            // last_block[..rlen].copy_from_slice(rem);
             self.gf_mul_buf(_mm_loadu_si128(last_block.as_ptr() as *const _));
         }
     }
@@ -240,15 +248,21 @@ impl GHash {
             let m1 = _mm_loadu_si128(m1.as_ptr() as *const __m128i);
             let m2 = _mm_loadu_si128(m2.as_ptr() as *const __m128i);
             let m3 = _mm_loadu_si128(m3.as_ptr() as *const __m128i);
-            let m0 = _mm_shuffle_epi8(m0, vm);
+            let m0 = _mm_xor_si128(_mm_shuffle_epi8(m0, vm), self.buf);
             let m1 = _mm_shuffle_epi8(m1, vm);
             let m2 = _mm_shuffle_epi8(m2, vm);
             let m3 = _mm_shuffle_epi8(m3, vm);
-            self.buf = gf_mul_reduce_4!(
-                _mm_xor_si128(m0, self.buf), m1, m2, m3,
-                self.key4, self.key3, self.key2, self.key,
-                self.fold_key4, self.fold_key3, self.fold_key2, self.fold_key
-            );
+
+            let ret0 = gf_mul_without_modular!(self.key4, m0, self.fold_key4);
+            let ret1 = gf_mul_without_modular!(self.key3, m1, self.fold_key3);
+            let ret2 = gf_mul_without_modular!(self.key2, m2, self.fold_key2);
+            let ret3 = gf_mul_without_modular!(self.key, m3, self.fold_key);
+
+            let ret_0 = _mm_xor_si128(_mm_xor_si128(_mm_xor_si128(ret0.0, ret1.0), ret2.0), ret3.0);
+            let ret_1 = _mm_xor_si128(_mm_xor_si128(_mm_xor_si128(ret0.1, ret1.1), ret2.1), ret3.1);
+            let ret_2 = _mm_xor_si128(_mm_xor_si128(_mm_xor_si128(ret0.2, ret1.2), ret2.2), ret3.2);
+
+            self.buf = gf_mul_modular!((ret_0, ret_1, ret_2));
         }
     }
 
