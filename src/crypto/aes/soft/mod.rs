@@ -448,6 +448,11 @@ impl AES128 {
     }
 
     #[inline(always)]
+    pub(crate) fn encrypt_6_blocks_xor(&self, _data0: &[u8; 16], _data1: &[u8; 16], _data2: &[u8; 16], _data3: &[u8; 16], _data4: &[u8; 16], _data5: &[u8; 16], _text0: &mut [u8; 16], _text1: &mut [u8; 16], _text2: &mut [u8; 16], _text3: &mut [u8; 16], _text4: &mut [u8; 16], _text5: &mut [u8; 16]) {
+        unimplemented!();
+    }
+
+    #[inline(always)]
     pub fn decrypt_4_blocks(&self, data0: &mut [u8; 16], data1: &mut [u8; 16], data2: &mut [u8; 16], data3: &mut [u8; 16]) {
         let mut blocks = [
             *data0, *data1, *data2, *data3
