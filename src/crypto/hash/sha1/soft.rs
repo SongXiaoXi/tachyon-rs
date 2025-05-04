@@ -149,7 +149,7 @@ impl Sha1 {
 
         #[crate::loop_unroll(i, 0, 20)]
         fn loop_unroll() {
-            let (f, k) = ((b & c) | ((!b) & d), 0x5a827999);
+            let (f, k) = (crate::utils::merge_bits(d, c, b), 0x5a827999);
             let temp = a.rotate_left(5)
                 .wrapping_add(f)
                 .wrapping_add(e)
@@ -254,7 +254,7 @@ macro_rules! sha1_test_case {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
 
     #[test]

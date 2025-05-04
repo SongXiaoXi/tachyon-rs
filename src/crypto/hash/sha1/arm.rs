@@ -284,7 +284,7 @@ impl Sha1 {
 
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
 
     #[cfg(target_arch = "arm")]

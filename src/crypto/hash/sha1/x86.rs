@@ -298,7 +298,7 @@ impl Sha1 {
 
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
     use std::arch::is_x86_feature_detected as is_target_feature_detected;
 
