@@ -2,70 +2,30 @@
 #[cfg(target_arch = "aarch64")]
 use core::arch::aarch64::*;
 use core::mem::transmute;
-use unsafe_target_feature::unsafe_target_feature;
 
-#[inline(always)]
+#[target_feature(enable = "neon", enable = "aes")]
+#[inline]
 unsafe fn vmull_low(a: uint8x16_t, b: uint8x16_t) -> uint8x16_t {
-    let t1: poly64x1_t = vget_low_p64(vreinterpretq_p64_u64(vreinterpretq_u64_u8(a)));
-    let t2: poly64x1_t = vget_low_p64(vreinterpretq_p64_u64(vreinterpretq_u64_u8(b)));
+    let t1 = vget_low_p64(vreinterpretq_p64_u8(a));
+    let t2 = vget_low_p64(vreinterpretq_p64_u8(b));
 
     let r = vmull_p64(transmute(t1), transmute(t2));
 
     return vreinterpretq_u8_p128(r);
 }
 
-#[inline(always)]
+#[target_feature(enable = "neon", enable = "aes")]
+#[inline]
 unsafe fn vmull_high(a: uint8x16_t, b: uint8x16_t) -> uint8x16_t {
-    let t1: poly64x2_t = vreinterpretq_p64_u64(vreinterpretq_u64_u8(a));
-    let t2: poly64x2_t = vreinterpretq_p64_u64(vreinterpretq_u64_u8(b));
+    let t1: poly64x2_t = vreinterpretq_p64_u8(a);
+    let t2: poly64x2_t = vreinterpretq_p64_u8(b);
 
     let r = vmull_high_p64(t1, t2);
 
     return vreinterpretq_u8_p128(r);
 }
 
-#[unsafe_target_feature("aes")]
-#[inline]
-unsafe fn gf_mul_without_modular(a: uint8x16_t, b: uint8x16_t) -> (uint8x16_t, uint8x16_t, uint8x16_t) {
-    let a_p = a;
-    let b_p = b;
-
-    let r0 = vmull_low(a_p, b_p);
-    let r1 = vmull_high(a_p, b_p);
-    let mut t0 = vextq_u8(b_p, b_p, 8);
-    let t1 = vmull_low(a_p, t0);
-    t0 = vmull_high(a_p, t0);
-    t0 = veorq_u8(t0, t1);
-
-    return (r0, t0, r1);
-}
-
-#[unsafe_target_feature("aes")]
-#[inline]
-unsafe fn gf_mul_modular(a: (uint8x16_t, uint8x16_t, uint8x16_t)) -> uint8x16_t {
-    let mut r0 = a.0;
-    let t0 = a.1;
-    let mut r1 = a.2;
-    let z = vdupq_n_u8(0);
-    let mut t1 = vextq_u8(z, t0, 8);
-    r0 = veorq_u8(r0, t1);
-    t1 = vextq_u8(t0, z, 8);
-    r1 = veorq_u8(r1, t1);
-
-    let p = vreinterpretq_u8_u64(vdupq_n_u64(0x0000000000000087));
-    let z = vdupq_n_u8(0);
-
-    let mut t0 = vmull_high(r1, p);
-    let t1 = vextq_u8(t0, z, 8);
-    let r1 = veorq_u8(r1, t1);
-    let t1 = vextq_u8(z, t0, 8);
-    r0 = veorq_u8(r0, t1);
-
-    t0 = vmull_low(r1, p);
-    veorq_u8(r0, t0)
-}
-
-#[unsafe_target_feature("aes")]
+#[target_feature(enable = "neon", enable = "aes")]
 #[inline]
 unsafe fn gf_mul_without_modular_pre_k(a: uint8x16_t, b: uint8x16_t, a_k: uint8x8_t) -> (uint8x16_t, uint8x16_t, uint8x16_t) {
     let a_p = a;
@@ -77,45 +37,55 @@ unsafe fn gf_mul_without_modular_pre_k(a: uint8x16_t, b: uint8x16_t, a_k: uint8x
     return (r0, t1, r1);
 }
 
-#[unsafe_target_feature("aes")]
+#[target_feature(enable = "neon", enable = "aes")]
 #[inline]
 unsafe fn gf_mul_modular_pre_k(a: (uint8x16_t, uint8x16_t, uint8x16_t)) -> uint8x16_t {
     let mut r0 = a.0;
-    let t1 = a.1;
-    let mut r1 = a.2;
-
-    let mut t0 = veorq_u8(r0, r1); 
-    t0 = veorq_u8(t0, t1);
-    let z = vdupq_n_u8(0);
-    let mut t1 = vextq_u8(z, t0, 8);
-    r0 = veorq_u8(r0, t1);
-    t1 = vextq_u8(t0, z, 8);
-    r1 = veorq_u8(r1, t1);
+    let mut t1 = a.1;
+    let r1 = a.2;
 
     let p = vreinterpretq_u8_u64(vdupq_n_u64(0x0000000000000087));
+    let mut t0 = veorq_u8(r0, r1); 
+    t0 = veorq_u8(t0, t1);
     
-    let mut t0 = vmull_high(r1, p);
-    let t1 = vextq_u8(t0, t0, 8);
-    let r1 = veorq_u8(r1, t1);
-    let t1 = vextq_u8(z, t0, 8);
-    r0 = veorq_u8(r0, t1);
+    let t2 = vmull_high(r1, p);
 
-    t0 = vmull_low(r1, p);
-    veorq_u8(r0, t0)
+    cfg_if::cfg_if! {
+        if #[cfg(target_vendor = "apple")] {
+            // Apple has magic optimizations
+            let z = vdupq_n_u8(0);
+            let mut r1 = veorq_u8(r1, vextq_u8(t0, z, 8));
+            r1 = veorq_u8(r1, vextq_u8(t2, z, 8));
+            let t3 = vmull_low(r1, p);
+
+            t1 = vextq_u8(z, t0, 8);
+            r0 = veorq_u8(r0, t1);
+            t1 = vextq_u8(z, t2, 8);
+            r0 = veorq_u8(r0, t1);
+        } else {
+            t1 = vextq_u8(t0, t0, 8);
+            let mut r1 = vget_low_u8(veorq_u8(r1, t1));
+            r1 = veor_u8(r1, vget_high_u8(t2));
+            let t3 = vreinterpretq_u8_p128(vmull_p64(transmute(r1), transmute(vget_low_u8(p))));
+
+            r0 = veorq_u8(r0, t1);
+            t1 = vextq_u8(t0, t2, 8);
+            r0 = veorq_u8(r0, t1);
+        }
+    }
+
+    veorq_u8(r0, t3)
 }
 
-#[unsafe_target_feature("aes")]
+#[target_feature(enable = "neon", enable = "aes")]
 #[inline]
-fn gf_mul(a: uint8x16_t, b: uint8x16_t) -> uint8x16_t {
-    unsafe {
-        let r0 = gf_mul_without_modular(a, b);
-        let r0 = gf_mul_modular(r0);
-        return r0;
-    }
+unsafe fn gf_mul(a: uint8x16_t, b: uint8x16_t) -> uint8x16_t {
+    let r0 = gf_mul_without_modular_pre_k(a, b, veor_u8(vget_low_u8(a), vget_high_u8(a)));
+    gf_mul_modular_pre_k(r0)
 }
 
 // Perform the multiplication and reduction in GF(2^128)
-#[unsafe_target_feature("aes")]
+#[target_feature(enable = "neon", enable = "aes")]
 #[inline]
 unsafe fn gf_mul_to_tag(key: uint8x16_t, m: uint8x16_t, tag: &mut uint8x16_t) {
     let m = vrbitq_u8(m);
@@ -140,11 +110,12 @@ pub struct GHash {
     key_k4: uint8x8_t,
 }
 
-#[unsafe_target_feature::unsafe_target_feature("aes")]
+#[unsafe_target_feature::unsafe_target_feature("neon,aes")]
 impl GHash {
     pub const KEY_LEN: usize = 16;
     pub const BLOCK_LEN: usize = 16;
     pub const TAG_LEN: usize = 16;
+    pub(crate) const IS_SOFT: bool = false;
 
     #[inline(always)]
     pub fn new(h: &[u8; 16]) -> Self {
@@ -194,7 +165,16 @@ impl GHash {
             let mut last_block = [0u8; Self::BLOCK_LEN];
             // Magic: black_box is used to prevent the compiler from using bzero
             std::hint::black_box(last_block.as_mut_ptr());
-            last_block[..rlen].copy_from_slice(rem);
+            unsafe {
+                crate::utils::assume(rlen <= Self::BLOCK_LEN);
+
+                crate::utils::copy_small_bytes(
+                    last_block.as_mut_ptr(),
+                    rem.as_ptr(),
+                    rlen,
+                );
+            }
+            // last_block[..rlen].copy_from_slice(rem);
 
             unsafe {
                 gf_mul_to_tag(self.key, vld1q_u8(last_block.as_ptr()), &mut self.tag);
@@ -221,9 +201,9 @@ impl GHash {
             let ret2 = gf_mul_without_modular_pre_k(self.key2, block2, self.key_k2);
             let ret3 = gf_mul_without_modular_pre_k(self.key, block3, self.key_k);
 
-            let ret_0 = veorq_u8(veorq_u8(veorq_u8(ret0.0, ret1.0), ret2.0), ret3.0);
-            let ret_1 = veorq_u8(veorq_u8(veorq_u8(ret0.1, ret1.1), ret2.1), ret3.1);
-            let ret_2 = veorq_u8(veorq_u8(veorq_u8(ret0.2, ret1.2), ret2.2), ret3.2);
+            let ret_0 = veorq_u8(veorq_u8(ret0.0, ret1.0), veorq_u8(ret2.0, ret3.0));
+            let ret_1 = veorq_u8(veorq_u8(ret0.1, ret1.1), veorq_u8(ret2.1, ret3.1));
+            let ret_2 = veorq_u8(veorq_u8(ret0.2, ret1.2), veorq_u8(ret2.2, ret3.2));
 
             self.tag = gf_mul_modular_pre_k((ret_0, ret_1, ret_2));
         }
