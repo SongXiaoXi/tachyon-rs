@@ -104,10 +104,14 @@ pub struct GHash {
     key2: uint8x16_t,
     key3: uint8x16_t,
     key4: uint8x16_t,
+    key5: uint8x16_t,
+    key6: uint8x16_t,
     key_k: uint8x8_t,
     key_k2: uint8x8_t,
     key_k3: uint8x8_t,
     key_k4: uint8x8_t,
+    key_k5: uint8x8_t,
+    key_k6: uint8x8_t,
 }
 
 #[unsafe_target_feature::unsafe_target_feature("neon,aes")]
@@ -124,11 +128,15 @@ impl GHash {
             let key2 = gf_mul(key, key);
             let key3 = gf_mul(key2, key);
             let key4 = gf_mul(key2, key2);
+            let key5 = gf_mul(key3, key2);
+            let key6 = gf_mul(key3, key3);
 
             let key_k = veor_u8(vget_low_u8(key), vget_high_u8(key));
             let key_k2 = veor_u8(vget_low_u8(key2), vget_high_u8(key2));
             let key_k3 = veor_u8(vget_low_u8(key3), vget_high_u8(key3));
             let key_k4 = veor_u8(vget_low_u8(key4), vget_high_u8(key4));
+            let key_k5 = veor_u8(vget_low_u8(key5), vget_high_u8(key5));
+            let key_k6 = veor_u8(vget_low_u8(key6), vget_high_u8(key6));
 
             Self {
                 key,
@@ -136,10 +144,14 @@ impl GHash {
                 key2,
                 key3,
                 key4,
+                key5,
+                key6,
                 key_k,
                 key_k2,
                 key_k3,
                 key_k4,
+                key_k5,
+                key_k6,
             }
         }
     }
@@ -204,6 +216,39 @@ impl GHash {
             let ret_0 = veorq_u8(veorq_u8(ret0.0, ret1.0), veorq_u8(ret2.0, ret3.0));
             let ret_1 = veorq_u8(veorq_u8(ret0.1, ret1.1), veorq_u8(ret2.1, ret3.1));
             let ret_2 = veorq_u8(veorq_u8(ret0.2, ret1.2), veorq_u8(ret2.2, ret3.2));
+
+            self.tag = gf_mul_modular_pre_k((ret_0, ret_1, ret_2));
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn update_6block_for_aes(&mut self, m0: &[u8; 16], m1: &[u8; 16], m2: &[u8; 16], m3: &[u8; 16], m4: &[u8; 16], m5: &[u8; 16]) {
+        unsafe {
+            let block0 = vld1q_u8(m0.as_ptr());
+            let block1 = vld1q_u8(m1.as_ptr());
+            let block2 = vld1q_u8(m2.as_ptr());
+            let block3 = vld1q_u8(m3.as_ptr());
+            let block4 = vld1q_u8(m4.as_ptr());
+            let block5 = vld1q_u8(m5.as_ptr());
+
+            let block0 = vrbitq_u8(block0);
+            let block1 = vrbitq_u8(block1);
+            let block2 = vrbitq_u8(block2);
+            let block3 = vrbitq_u8(block3);
+            let block4 = vrbitq_u8(block4);
+            let block5 = vrbitq_u8(block5);
+
+            let block0 = veorq_u8(block0, self.tag);
+            let ret0 = gf_mul_without_modular_pre_k(self.key6, block0, self.key_k6);
+            let ret1 = gf_mul_without_modular_pre_k(self.key5, block1, self.key_k5);
+            let ret2 = gf_mul_without_modular_pre_k(self.key4, block2, self.key_k4);
+            let ret3 = gf_mul_without_modular_pre_k(self.key3, block3, self.key_k3);
+            let ret4 = gf_mul_without_modular_pre_k(self.key2, block4, self.key_k2);
+            let ret5 = gf_mul_without_modular_pre_k(self.key,  block5, self.key_k);
+
+            let ret_0 = veorq_u8(veorq_u8(ret0.0, ret1.0), veorq_u8(veorq_u8(ret2.0, ret3.0), veorq_u8(ret4.0, ret5.0)));
+            let ret_1 = veorq_u8(veorq_u8(ret0.1, ret1.1), veorq_u8(veorq_u8(ret2.1, ret3.1), veorq_u8(ret4.1, ret5.1)));
+            let ret_2 = veorq_u8(veorq_u8(ret0.2, ret1.2), veorq_u8(veorq_u8(ret2.2, ret3.2), veorq_u8(ret4.2, ret5.2)));
 
             self.tag = gf_mul_modular_pre_k((ret_0, ret_1, ret_2));
         }
