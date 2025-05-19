@@ -1,5 +1,5 @@
 [package]
-name = "quantacc-macros"
+name = "tachyon-macros"
 version = "0.1.0"
 edition = "2021"
 

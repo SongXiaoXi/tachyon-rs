@@ -87,9 +87,6 @@ pub fn loop_unroll(attr: TokenStream, item: TokenStream) -> TokenStream {
     }
 
     output = TokenStream::from(TokenTree::Group(Group::new(Delimiter::Brace, output)));
-
-    // println!("output: {:?}", output.to_string());
-
     output
 }
 
