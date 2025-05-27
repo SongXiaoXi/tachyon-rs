@@ -1,11 +1,21 @@
-pub(crate) mod xor;
+pub(crate) mod portable;
+pub(crate) mod alloc;
 mod cpu_name;
 
 pub use cpu_name::cpu_name;
+pub(crate) use alloc::Alloc;
+
 mod disjoint_bitor;
-mod int_traits;
+pub(crate) mod num_traits;
+mod bench;
+
+pub mod hardware;
 pub use disjoint_bitor::disjoint_or;
-pub use int_traits::IntTraits;
+pub(crate) use num_traits::IntTraits;
+
+mod feature_detect;
+#[allow(unused_imports)]
+pub(crate) use feature_detect::*;
 
 #[cfg(target_os = "android")]
 pub mod android;
@@ -344,7 +354,7 @@ where
 /// check for alignment or out-of-bounds access.
 #[inline(always)]
 #[allow(asm_sub_register)]
-pub unsafe fn copy_small_bytes(
+pub unsafe fn copy_chunks_u8(
     dst: *mut u8,
     src: *const u8,
     len: usize,
@@ -352,13 +362,13 @@ pub unsafe fn copy_small_bytes(
     for i in 0..len {
         let mut byte = *src.add(i);
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        std::arch::asm!(
+        core::arch::asm!(
             "/* {byte} */",
             byte = inout(reg_byte) byte,
             options(pure, nomem, preserves_flags, nostack)
         );
         #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
-        std::arch::asm!(
+        core::arch::asm!(
             "/* {byte} */",
             byte = inout(reg) byte,
             options(pure, nomem, preserves_flags, nostack)
@@ -367,3 +377,6 @@ pub unsafe fn copy_small_bytes(
         *dst.add(i) = byte;
     }
 }
+
+mod memory;
+pub use memory::*;
