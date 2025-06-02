@@ -1,8 +1,44 @@
 #[macro_use]
 pub mod soft;
+pub mod dynamic;
+#[cfg(target_arch = "aarch64")]
+pub mod aarch64;
+#[cfg(target_arch = "aarch64")]
+pub mod aarch64_ni;
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+pub mod x86_avx;
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[path = "x86.rs"]
+#[macro_use]
+pub mod x86_ssse3;
+
+cfg_if::cfg_if! {
+    if #[cfg(all(target_arch = "aarch64", target_feature = "neon", target_feature = "sha3"))] {
+        pub use aarch64_ni::*;
+    } else if #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "ssse3", target_feature = "avx"))] {
+        pub use x86_avx::*;
+    } else {
+        #[cfg(not(feature = "disable_dynamic_export"))]
+        pub use dynamic::*;
+        #[allow(unused_imports)]
+        #[cfg(feature = "disable_dynamic_export")]
+        pub(crate) use dynamic::*;
+    }
+}
+
+const INITIAL_STATE: [u64; 8] = [
+    0x6a09e667f3bcc908,
+    0xbb67ae8584caa73b,
+    0x3c6ef372fe94f82b,
+    0xa54ff53a5f1d36f1,
+    0x510e527fade682d1,
+    0x9b05688c2b3e6c1f,
+    0x1f83d9abfb41bd6b,
+    0x5be0cd19137e2179,
+];
 
 // Round constants
-const K: [u64; 80] = [
+static K: [u64; 80] = [
     0x428A2F98D728AE22,
     0x7137449123EF65CD,
     0xB5C0FBCFEC4D3B2F,
@@ -84,4 +120,3 @@ const K: [u64; 80] = [
     0x5FCB6FAB3AD6FAEC,
     0x6C44198C4A475817,
 ];
-
