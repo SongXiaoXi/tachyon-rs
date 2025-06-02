@@ -28,7 +28,8 @@ cfg_if::cfg_if!{
                 extern "C" {
                     fn CFStringCreateWithBytesNoCopy(alloc: *const libc::c_void, bytes: *const u8, len: usize, encoding: u32, isExternalRepresentation: u8, contentsDeallocator: *const libc::c_void) -> CFStringRef;
                     fn CFRelease(cf: *const libc::c_void);
-                    fn CFStringGetCStringPtr(cf: CFStringRef, encoding: u32) -> *const libc::c_char;
+                    fn CFStringGetLength(cf: CFStringRef) -> i64;
+                    fn CFStringGetCString(cf: CFStringRef, buffer: *mut libc::c_char, buffer_size: libc::c_long, encoding: u32) -> u8;
                     static kCFAllocatorNull: *const libc::c_void;
                 }
                 #[allow(non_upper_case_globals)]
@@ -54,7 +55,14 @@ cfg_if::cfg_if!{
                         return "Null iOS marketing name".to_string();
                     }
 
-                    let name = std::ffi::CStr::from_ptr(CFStringGetCStringPtr(marketing_name, kCFStringEncodingUTF8)).to_string_lossy().to_string();
+                    let len = CFStringGetLength(marketing_name);
+                    let mut c_buf = vec![0i8; (len as usize) * 4 + 1];
+                    let ok = CFStringGetCString(marketing_name, c_buf.as_mut_ptr(), c_buf.len() as _, kCFStringEncodingUTF8);
+                    let name = if ok != 0 {
+                        std::ffi::CStr::from_ptr(c_buf.as_ptr()).to_string_lossy().to_string()
+                    } else {
+                        "Unknown iOS Device Name".to_string()
+                    };
 
                     CFRelease(marketing_name_key as _);
                     CFRelease(marketing_name as _);
