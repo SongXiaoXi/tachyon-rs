@@ -441,10 +441,10 @@ impl AES128 {
 
         self.encrypt_4_blocks(&mut data0, &mut data1, &mut data2, &mut data3);
 
-        crate::utils::xor::xor_si128_inplace(text0, &data0);
-        crate::utils::xor::xor_si128_inplace(text1, &data1);
-        crate::utils::xor::xor_si128_inplace(text2, &data2);
-        crate::utils::xor::xor_si128_inplace(text3, &data3);
+        crate::utils::portable::xor_si128_inplace(text0, &data0);
+        crate::utils::portable::xor_si128_inplace(text1, &data1);
+        crate::utils::portable::xor_si128_inplace(text2, &data2);
+        crate::utils::portable::xor_si128_inplace(text3, &data3);
     }
 
     #[inline(always)]

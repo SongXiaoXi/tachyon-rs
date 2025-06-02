@@ -258,7 +258,7 @@ macro_rules! sha512_test_case {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
     #[test]
     fn test_sha512() {

@@ -165,11 +165,9 @@ macro_rules! process_block_with {
             s6 = _mm_shuffle_epi8(s6, mask);
             s7 = _mm_shuffle_epi8(s7, mask);
     
-            static _K: [u64; 80] = super::K;
-            #[allow(non_snake_case)]
-            let mut K = _K.as_ptr();
             // Magic: black_box is used to prevent the compiler from using load immediate instructions
-            std::hint::black_box(&mut K);
+            #[allow(non_snake_case)]
+            let K = std::hint::black_box(super::K.as_ptr());
 
             let mut w_add_k = [0u64; 16];
     
@@ -187,7 +185,7 @@ macro_rules! process_block_with {
                     let s0 = a.rotate_right(28) ^ a.rotate_right(34) ^ a.rotate_right(39);
                     let s1 = e.rotate_right(14) ^ e.rotate_right(18) ^ e.rotate_right(41);
                     let maj = (a & b) ^ (a & c) ^ (b & c);
-                    let ch = (e & f) ^ ((!e) & g);
+                    let ch = crate::utils::merge_bits(g, f, e);
                     let t2 = s0.wrapping_add(maj);
                     let t1 = h
                         .wrapping_add(s1)
@@ -306,7 +304,7 @@ macro_rules! process_block_with {
 pub(crate) use process_block_with;
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
     #[test]
     fn test_sha512() {

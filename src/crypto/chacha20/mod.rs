@@ -66,6 +66,21 @@ impl $name {
     }
 
     #[inline(always)]
+    pub(crate) fn op_1block(&self, init_block_counter: u32, nonce: &[u8; $nonce_len], plaintext_or_ciphertext: &mut [u8; 64]) {
+        debug_assert_eq!(nonce.len(), Self::NONCE_LEN);
+
+        let mut initial_state = self.initial_state;
+        // Counter (32-bits, little-endian)
+        initial_state[12] = init_block_counter;
+        // Nonce (96-bits, little-endian)
+        initial_state[13] = u32::from_le_bytes([nonce[0], nonce[1], nonce[2], nonce[3]]);
+        initial_state[14] = u32::from_le_bytes([nonce[4], nonce[5], nonce[6], nonce[7]]);
+        initial_state[15] = u32::from_le_bytes([nonce[8], nonce[9], nonce[10], nonce[11]]);
+
+        Self::block_op(&mut initial_state, plaintext_or_ciphertext);
+    }
+
+    #[inline(always)]
     pub(crate) fn op_4blocks(&self, init_block_counter: u32, nonce: &[u8; $nonce_len], plaintext_or_ciphertext: &mut [u8; 256]) {
         debug_assert_eq!(nonce.len(), Self::NONCE_LEN);
 
@@ -116,8 +131,6 @@ impl $name {
                     _mm_storeu_si128(plaintext_or_ciphertext.as_ptr().add(start + 48) as _, _mm_xor_si128(block03, block[3]));
                     start += Self::BLOCK_LEN;
                 }
-
-                // initial_state[12] += (start / Self::BLOCK_LEN) as u32;
             }
         }
         else if #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
@@ -199,11 +212,9 @@ impl $name {
                     vst1q_u32(plaintext_or_ciphertext.as_mut_ptr().add(start + 48) as _, block03);
                     start += Self::BLOCK_LEN;
                 }
-                // initial_state[12] += (start / Self::BLOCK_LEN) as u32;
             }
         } else {
-
-            crate::const_loop!(_, 0, 4 {
+            crate::const_loop!(_, 0, 4, {
                 let mut keystream = [0u8; Self::BLOCK_LEN];
                 let plaintext = unsafe { crate::utils::slice_to_array_at_mut(plaintext_or_ciphertext, start) };
                 Self::block_op(&mut initial_state, &mut keystream);
@@ -390,6 +401,7 @@ impl $name {
             let mut keystream = [0u8; Self::BLOCK_LEN];
             let rem = unsafe { plaintext_or_ciphertext.get_unchecked_mut(start..start + len_remain) };
             Self::block_op(&mut initial_state, &mut keystream);
+            // Safety: len_remain is less than BLOCK_LEN
             unsafe {
                 crate::utils::assume(len_remain < Self::BLOCK_LEN);
             }
@@ -428,15 +440,18 @@ impl_chacha20_for_target!(Chacha20Soft, 32, 64, 12, 4);
 
 cfg_if::cfg_if!{
     if #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] {
-        impl_chacha20_for_target!(Chacha20Sse, 32, 64, 12, 4, "sse2");
+        impl_chacha20_for_target!(Chacha20SSE, 32, 64, 12, 4, "sse2");
+        impl_chacha20_for_target!(Chacha20AVX, 32, 64, 12, 4, "avx");
     } else if #[cfg(any(target_arch = "aarch64", target_arch = "arm"))] {
         impl_chacha20_for_target!(Chacha20Neon, 32, 64, 12, 4, "neon");
     }
 }
 
 cfg_if::cfg_if!{
-    if #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "sse2"))] {
-        pub type Chacha20 = Chacha20Sse;
+    if #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "avx"))] {
+        pub type Chacha20 = Chacha20AVX;
+    } else if #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "sse2"))] {
+        pub type Chacha20 = Chacha20SSE;
     } else if #[cfg(all(any(target_arch = "aarch64", target_arch = "arm"), target_feature = "neon"))] {
         pub type Chacha20 = Chacha20Neon;
     } else {
@@ -640,7 +655,6 @@ cfg_if::cfg_if! {
                 double_quarter_round(&mut res);
             }
 
-
             #[crate::loop_unroll(i, 0, 4)]
             fn loop_unroll() {
                 #[crate::loop_unroll(j, 0, 4)]
@@ -703,13 +717,11 @@ cfg_if::cfg_if! {
             };
         }
 
-        macro_rules! rotate_left {
+        macro_rules! rotate_left_u32 {
             ($v:expr, 8) => {
                 #[cfg(target_arch = "aarch64")]
                 {
-                    let maskb = [3u8, 0, 1, 2, 7, 4, 5, 6, 11, 8, 9, 10, 15, 12, 13, 14];
-                    let mask = vld1q_u8(maskb.as_ptr());
-           
+                    let mask = vld1q_u8([3u8, 0, 1, 2, 7, 4, 5, 6, 11, 8, 9, 10, 15, 12, 13, 14].as_ptr());
                     $v = vreinterpretq_u32_u8(vqtbl1q_u8(vreinterpretq_u8_u32($v), mask))
                 }
                 #[cfg(target_arch = "arm")]
@@ -730,19 +742,19 @@ cfg_if::cfg_if! {
         unsafe fn quarter_round_neon(state_04: &mut uint32x4_t, state_48: &mut uint32x4_t, state_8c: &mut uint32x4_t, state_c0: &mut uint32x4_t) {
             *state_04 = vaddq_u32(*state_04, *state_48);
             *state_c0 = veorq_u32(*state_c0, *state_04);
-            rotate_left!(*state_c0, 16);
+            rotate_left_u32!(*state_c0, 16);
 
             *state_8c = vaddq_u32(*state_8c, *state_c0);
             *state_48 = veorq_u32(*state_48, *state_8c);
-            rotate_left!(*state_48, 12);
+            rotate_left_u32!(*state_48, 12);
 
             *state_04 = vaddq_u32(*state_04, *state_48);
             *state_c0 = veorq_u32(*state_c0, *state_04);
-            rotate_left!(*state_c0, 8);
+            rotate_left_u32!(*state_c0, 8);
 
             *state_8c = vaddq_u32(*state_8c, *state_c0);
             *state_48 = veorq_u32(*state_48, *state_8c);
-            rotate_left!(*state_48, 7);
+            rotate_left_u32!(*state_48, 7);
         }
 
         #[target_feature(enable = "neon")]
@@ -790,7 +802,7 @@ cfg_if::cfg_if! {
             }); 
 
             #[crate::loop_unroll(i, 0, 16)]
-                    fn loop_unroll() {
+            fn loop_unroll() {
                 res[i] = vaddq_u32(res[i], v[i]);
             }
             #[target_feature(enable = "neon")]
@@ -883,7 +895,7 @@ cfg_if::cfg_if! {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
 
     #[test]
