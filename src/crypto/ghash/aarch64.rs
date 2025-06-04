@@ -275,4 +275,26 @@ mod tests {
         }
         ghash_test_case!();
     }
+
+    #[test]
+    fn test_neon_clmul() {
+        if !std::arch::is_aarch64_feature_detected!("aes") {
+            return;
+        }
+
+        let a = [0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6];
+        let b = [0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c];
+        unsafe {
+            use std::mem::transmute;
+            let a = vld1_u8(a.as_ptr());
+            let b = vld1_u8(b.as_ptr());
+            let result = super::super::arm::clmul!(a, b);
+            let expected = vreinterpretq_u8_p128(vmull_p64(transmute(a), transmute(b)));
+            let mut result_arr = [0u8; 16];
+            vst1q_u8(result_arr.as_mut_ptr(), result);
+            let mut expected_arr = [0u8; 16];
+            vst1q_u8(expected_arr.as_mut_ptr(), expected);
+            assert_eq!(result_arr, expected_arr);
+        }
+    }
 }
