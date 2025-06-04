@@ -111,7 +111,7 @@ impl GHash {
             unsafe {
                 crate::utils::assume(rlen <= Self::BLOCK_LEN);
 
-                crate::utils::copy_small_bytes(
+                crate::utils::copy_chunks_u8(
                     last_block.as_mut_ptr(),
                     rem.as_ptr(),
                     rlen,
