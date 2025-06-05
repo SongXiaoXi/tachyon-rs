@@ -23,6 +23,27 @@ pub union Sha512 {
 
 static mut IDX: u32 = u32::MAX; // 0: soft, 1: x86 SSSE3/armv8 Sha512-NI, 2:x86 AVX/armv8 NEON
 
+unsafe fn init_idx() {
+    if IDX == u32::MAX {
+        if crate::is_hw_feature_detected!(
+            "x86" => ("sse2", "ssse3"),
+            "x86_64" => ("sse2", "ssse3"),
+            "aarch64" => ("neon")
+        ) {
+            IDX = 1;
+            if crate::is_hw_feature_detected!(
+                "x86" => ("avx"),
+                "x86_64" => ("avx"),
+                "aarch64" => ("sha3"),
+            ) {
+                IDX = 2;
+            }
+        } else {
+            IDX = 0;
+        }
+    }
+}
+
 impl Sha512 {
     pub const BLOCK_LEN: usize = 128;
     pub const DIGEST_LEN: usize = 64;
@@ -35,25 +56,7 @@ impl Sha512 {
     #[inline(always)]
     pub fn new() -> Self {
         unsafe {
-            if IDX == u32::MAX {
-                if crate::is_hw_feature_detected!(
-                    "x86" => ("sse2", "ssse3"),
-                    "x86_64" => ("sse2", "ssse3"),
-                    "aarch64" => ("neon")
-                ) {
-                    IDX = 1;
-                    if crate::is_hw_feature_detected!(
-                        "x86" => ("avx"),
-                        "x86_64" => ("avx"),
-                        "aarch64" => ("sha3"),
-                    ) {
-                        IDX = 2;
-                    }
-                } else {
-                    IDX = 0;
-                }
-                
-            }
+            init_idx();
 
             match IDX {
                 0 => Sha512 {
@@ -119,6 +122,7 @@ impl Sha512 {
     #[inline(always)]
     pub fn oneshot(m: &[u8]) -> [u8; Self::DIGEST_LEN] {
         unsafe {
+            init_idx();
             match IDX {
                 0 => soft::Sha512::oneshot(m),
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]

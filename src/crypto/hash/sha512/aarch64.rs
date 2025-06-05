@@ -35,6 +35,7 @@ impl Sha512 {
         if self.offset > 0 {
             while i < data.len() {
                 if self.offset < Self::BLOCK_LEN {
+                    unsafe { crate::utils::assume(i < data.len()) };
                     self.buffer[self.offset] = data[i];
                     self.offset += 1;
                     i += 1;
