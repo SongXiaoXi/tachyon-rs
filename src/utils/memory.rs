@@ -111,7 +111,7 @@ unsafe fn estimate_bandwidth_impl() -> f64 {
                 sum = sum.wrapping_add(v);
             });
         }
-        data = std::hint::black_box(data);
+        data = crate::utils::black_box(data);
     }
     let elapsed = start.elapsed();
     let elapsed_us = elapsed.as_micros() as f64;
