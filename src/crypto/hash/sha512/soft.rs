@@ -128,6 +128,7 @@ impl Sha512 {
 
     #[inline(always)]
     fn process_block_with(&mut self, block: &[u8; Self::BLOCK_LEN]) {
+        use crate::utils::merge_bits;
         let mut w = [0u64; 80];
 
         let mut a = self.state[0];
@@ -150,7 +151,7 @@ impl Sha512 {
                 let s0 = a.rotate_right(28) ^ a.rotate_right(34) ^ a.rotate_right(39);
                 let s1 = e.rotate_right(14) ^ e.rotate_right(18) ^ e.rotate_right(41);
                 let maj = (a & b) ^ (a & c) ^ (b & c);
-                let ch = (e & f) ^ ((!e) & g);
+                let ch = merge_bits(g, f, e);
                 let t2 = s0.wrapping_add(maj);
                 let t1 = h
                     .wrapping_add(s1)
