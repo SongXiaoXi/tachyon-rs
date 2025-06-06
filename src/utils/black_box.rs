@@ -4,7 +4,8 @@ pub trait BlackBox {
 }
 
 macro_rules! black_box_impl {
-    ($ty:ty, $reg:ident) => {
+    ($ty:ty, $reg:ident$(, $feature:literal)?) => {
+        $(#[unsafe_target_feature::unsafe_target_feature($feature)])?
         impl BlackBox for $ty {
             #[inline(always)]
             #[allow(asm_sub_register)]
@@ -29,10 +30,12 @@ cfg_if::cfg_if! {
 
 black_box_impl!(u16, reg);
 black_box_impl!(u32, reg);
+#[cfg(target_pointer_width = "64")]
 black_box_impl!(u64, reg);
 black_box_impl!(usize, reg);
 black_box_impl!(i16, reg);
 black_box_impl!(i32, reg);
+#[cfg(target_pointer_width = "64")]
 black_box_impl!(i64, reg);
 black_box_impl!(isize, reg);
 
@@ -95,33 +98,32 @@ cfg_if::cfg_if! {
 
         black_box_impl!(float32x4_t, vreg);
         black_box_impl!(float64x2_t, vreg);
-    } else if #[cfg(target_arch = "arm")] {
-        use core::arch::arm::*;
-        black_box_impl!(uint8x16_t, vreg);
-        black_box_impl!(uint16x8_t, vreg);
-        black_box_impl!(uint32x4_t, vreg);
-        black_box_impl!(uint64x2_t, vreg);
-
-        black_box_impl!(uint8x8_t, vreg);
-        black_box_impl!(uint16x4_t, vreg);
-        black_box_impl!(uint32x2_t, vreg);
-        black_box_impl!(uint64x1_t, vreg);
-
-        black_box_impl!(int8x16_t, vreg);
-        black_box_impl!(int16x8_t, vreg);
-        black_box_impl!(int32x4_t, vreg);
-        black_box_impl!(int64x2_t, vreg);
-
-        black_box_impl!(int8x8_t, vreg);
-        black_box_impl!(int16x4_t, vreg);
-        black_box_impl!(int32x2_t, vreg);
-        black_box_impl!(int64x1_t, vreg);
-
-        black_box_impl!(float32x4_t, vreg);
-        black_box_impl!(float64x2_t, vreg);
-
         black_box_impl!(float32x2_t, vreg);
         black_box_impl!(float64x1_t, vreg);
+    } else if #[cfg(target_arch = "arm")] {
+        use core::arch::arm::*;
+        black_box_impl!(uint8x16_t, qreg, "neon");
+        black_box_impl!(uint16x8_t, qreg, "neon");
+        black_box_impl!(uint32x4_t, qreg, "neon");
+        black_box_impl!(uint64x2_t, qreg, "neon");
+
+        black_box_impl!(uint8x8_t, dreg, "neon");
+        black_box_impl!(uint16x4_t, dreg, "neon");
+        black_box_impl!(uint32x2_t, dreg, "neon");
+        black_box_impl!(uint64x1_t, dreg, "neon");
+
+        black_box_impl!(int8x16_t, qreg, "neon");
+        black_box_impl!(int16x8_t, qreg, "neon");
+        black_box_impl!(int32x4_t, qreg, "neon");
+        black_box_impl!(int64x2_t, qreg, "neon");
+
+        black_box_impl!(int8x8_t, dreg, "neon");
+        black_box_impl!(int16x4_t, dreg, "neon");
+        black_box_impl!(int32x2_t, dreg, "neon");
+        black_box_impl!(int64x1_t, dreg, "neon");
+
+        black_box_impl!(float32x4_t, qreg, "neon");
+        black_box_impl!(float32x2_t, dreg, "neon");
     }
 }
 
