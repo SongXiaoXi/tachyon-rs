@@ -51,8 +51,28 @@ rustc_version = "*"
 [dev-dependencies]
 criterion = { version = "*", default-features = false }
 ring = "*"
+rand = "*"
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+check-cfg = ["cfg(aes_compact)"]
 
 [[bench]]
-name = "aes"
+name = "aes_gcm"
 harness = false
-path = "bench/aes.rs"
+path = "bench/aes_gcm.rs"
+
+[[bench]]
+name = "chacha20_poly1305"
+harness = false
+path = "bench/chacha20_poly1305.rs"
+
+[[bench]]
+name = "sha1"
+harness = false
+path = "bench/sha1.rs"
+
+[[bench]]
+name = "sha512"
+harness = false
+path = "bench/sha512.rs"
