@@ -9,13 +9,11 @@ mod disjoint_bitor;
 pub(crate) mod num_traits;
 mod bench;
 
-pub mod hardware;
 pub use disjoint_bitor::disjoint_or;
 pub(crate) use num_traits::IntTraits;
 
-mod feature_detect;
-#[allow(unused_imports)]
-pub(crate) use feature_detect::*;
+pub mod black_box;
+pub use black_box::black_box;
 
 #[cfg(target_os = "android")]
 pub mod android;
@@ -360,20 +358,7 @@ pub unsafe fn copy_chunks_u8(
     len: usize,
 ) {
     for i in 0..len {
-        let mut byte = *src.add(i);
-        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        core::arch::asm!(
-            "/* {byte} */",
-            byte = inout(reg_byte) byte,
-            options(pure, nomem, preserves_flags, nostack)
-        );
-        #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
-        core::arch::asm!(
-            "/* {byte} */",
-            byte = inout(reg) byte,
-            options(pure, nomem, preserves_flags, nostack)
-        );
-
+        let byte = crate::utils::black_box(*src.add(i));
         *dst.add(i) = byte;
     }
 }
