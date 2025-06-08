@@ -1,1 +1,9 @@
 pub mod aes;
+pub mod gcm;
+pub mod ghash;
+pub mod chacha20;
+pub mod poly1305;
+pub mod chacha20_poly1305;
+pub mod hash;
+pub mod hmac;
+pub mod hkdf;
