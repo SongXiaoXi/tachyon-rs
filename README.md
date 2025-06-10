@@ -43,7 +43,7 @@ AES-128-GCM encryption of 64 KiB:
 | Apple A16     | 8.32 µs    | 9.28 µs  | ~10% faster   |
 | Snapdragon 888 | 14.56 µs   | 16.58 µs | ~12% faster   |
 
-Tip: On older Apple devices (e.g., A7–A10), compiling with `rust nightly` and `-Ztune-cpu=cortex-a53` may produce more favorable NEON code generation.
+Tip: On older Apple devices (e.g., A7–A10), compiling with `rust nightly` and `-Ztune-cpu=generic` may produce more favorable NEON code generation.
 
 ## Security Notice
 
