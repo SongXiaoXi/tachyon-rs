@@ -52,6 +52,7 @@ rustc_version = "*"
 criterion = { version = "*", default-features = false }
 ring = "*"
 rand = "*"
+md5 = "*"
 
 [lints.rust.unexpected_cfgs]
 level = "warn"
@@ -66,6 +67,11 @@ path = "bench/aes_gcm.rs"
 name = "chacha20_poly1305"
 harness = false
 path = "bench/chacha20_poly1305.rs"
+
+[[bench]]
+name = "md5"
+harness = false
+path = "bench/md5.rs"
 
 [[bench]]
 name = "sha1"
