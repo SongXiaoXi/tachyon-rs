@@ -79,7 +79,6 @@ impl Sha1 {
         // pad len, in bytes
         let plen = plen_bits / 8;
         debug_assert_eq!(plen_bits % 8, 0);
-        debug_assert!(plen > 1);
         debug_assert_eq!(
             (mlen + plen + Self::MLEN_SIZE as u64) % Self::BLOCK_LEN as u64,
             0
@@ -257,6 +256,27 @@ macro_rules! sha1_test_case {
             0xce, 0x37, 0xf2, 0xa1, 0x9d,
             0x84, 0x24, 0x0d, 0x3a, 0x89,
         ]);
+        let random_data = (0..1000).map(|_| rand::random::<u8>()).collect::<Vec<u8>>();
+        for _ in 0..100 {
+            let length = (rand::random::<u32>() % 1000) as usize;
+            let data = &random_data[..length];
+            let expected = ring::digest::digest(
+                &ring::digest::SHA1_FOR_LEGACY_USE_ONLY,
+                &data,
+            );
+            assert_eq!(
+                <$name>::oneshot(data),
+                expected.as_ref()
+            );
+        }
+        let expected = ring::digest::digest(
+            &ring::digest::SHA1_FOR_LEGACY_USE_ONLY,
+            &random_data,
+        );
+        assert_eq!(
+            <$name>::oneshot(&random_data),
+            expected.as_ref()
+        );
     };
     () => {
         sha1_test_case!(Sha1);

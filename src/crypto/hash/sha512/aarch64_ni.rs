@@ -38,7 +38,6 @@ impl Sha512 {
             + 1;
         let plen = plen_bits / 8;
         debug_assert_eq!(plen_bits % 8, 0);
-        debug_assert!(plen > 1);
         debug_assert_eq!(
             (mlen + plen + Self::MLEN_SIZE as u128) % Self::BLOCK_LEN as u128,
             0
