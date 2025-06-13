@@ -26,7 +26,7 @@ impl Sha1 {
     }
 }
 
-#[unsafe_target_feature("sse2,sha")]
+#[unsafe_target_feature("sse2,ssse3,sha")]
 impl Sha1 {
     #[inline]
     pub fn update(&mut self, data: &[u8]) {
@@ -125,14 +125,14 @@ impl Sha1 {
         let mut msg0 = _mm_loadu_si128(block.as_ptr() as _);
         msg0 = _mm_shuffle_epi8(msg0, mask);
         e0 = _mm_add_epi32(e0, msg0);
-        let mut e1 = abcd;
+        let mut e1 = crate::utils::black_box(abcd);
         abcd = _mm_sha1rnds4_epu32(abcd, e0, 0);
 
         // Rounds 4-7
         let mut msg1 = _mm_loadu_si128(block.as_ptr().add(16) as _);
         msg1 = _mm_shuffle_epi8(msg1, mask);
         e1 = _mm_sha1nexte_epu32(e1, msg1);
-        e0 = abcd;
+        e0 = crate::utils::black_box(abcd);
         abcd = _mm_sha1rnds4_epu32(abcd, e1, 0);
         msg0 = _mm_sha1msg1_epu32(msg0, msg1);
 
@@ -140,7 +140,7 @@ impl Sha1 {
         let mut msg2 = _mm_loadu_si128(block.as_ptr().add(32) as _);
         msg2 = _mm_shuffle_epi8(msg2, mask);
         e0 = _mm_sha1nexte_epu32(e0, msg2);
-        e1 = abcd;
+        e1 = crate::utils::black_box(abcd);
         abcd = _mm_sha1rnds4_epu32(abcd, e0, 0);
         msg1 = _mm_sha1msg1_epu32(msg1, msg2);
         msg0 = _mm_xor_si128(msg0, msg2);
@@ -149,7 +149,7 @@ impl Sha1 {
         let mut msg3 = _mm_loadu_si128(block.as_ptr().add(48) as _);
         msg3 = _mm_shuffle_epi8(msg3, mask);
         e1 = _mm_sha1nexte_epu32(e1, msg3);
-        e0 = abcd;
+        e0 = crate::utils::black_box(abcd);
         msg0 = _mm_sha1msg2_epu32(msg0, msg3);
         abcd = _mm_sha1rnds4_epu32(abcd, e1, 0);
         msg2 = _mm_sha1msg1_epu32(msg2, msg3);
@@ -157,7 +157,7 @@ impl Sha1 {
 
         // Rounds 16-19
         e0 = _mm_sha1nexte_epu32(e0, msg0);
-        e1 = abcd;
+        e1 = crate::utils::black_box(abcd);
         msg1 = _mm_sha1msg2_epu32(msg1, msg0);
         abcd = _mm_sha1rnds4_epu32(abcd, e0, 0);
         msg3 = _mm_sha1msg1_epu32(msg3, msg0);
@@ -165,7 +165,7 @@ impl Sha1 {
 
         // Rounds 20-23
         e1 = _mm_sha1nexte_epu32(e1, msg1);
-        e0 = abcd;
+        e0 = crate::utils::black_box(abcd);
         msg2 = _mm_sha1msg2_epu32(msg2, msg1);
         abcd = _mm_sha1rnds4_epu32(abcd, e1, 1);
         msg0 = _mm_sha1msg1_epu32(msg0, msg1);
@@ -173,7 +173,7 @@ impl Sha1 {
 
         // Rounds 24-27
         e0 = _mm_sha1nexte_epu32(e0, msg2);
-        e1 = abcd;
+        e1 = crate::utils::black_box(abcd);
         msg3 = _mm_sha1msg2_epu32(msg3, msg2);
         abcd = _mm_sha1rnds4_epu32(abcd, e0, 1);
         msg1 = _mm_sha1msg1_epu32(msg1, msg2);
@@ -181,7 +181,7 @@ impl Sha1 {
 
         // Rounds 28-31
         e1 = _mm_sha1nexte_epu32(e1, msg3);
-        e0 = abcd;
+        e0 = crate::utils::black_box(abcd);
         msg0 = _mm_sha1msg2_epu32(msg0, msg3);
         abcd = _mm_sha1rnds4_epu32(abcd, e1, 1);
         msg2 = _mm_sha1msg1_epu32(msg2, msg3);
@@ -189,7 +189,7 @@ impl Sha1 {
 
         // Rounds 32-35
         e0 = _mm_sha1nexte_epu32(e0, msg0);
-        e1 = abcd;
+        e1 = crate::utils::black_box(abcd);
         msg1 = _mm_sha1msg2_epu32(msg1, msg0);
         abcd = _mm_sha1rnds4_epu32(abcd, e0, 1);
         msg3 = _mm_sha1msg1_epu32(msg3, msg0);
@@ -197,7 +197,7 @@ impl Sha1 {
 
         // Rounds 36-39
         e1 = _mm_sha1nexte_epu32(e1, msg1);
-        e0 = abcd;
+        e0 = crate::utils::black_box(abcd);
         msg2 = _mm_sha1msg2_epu32(msg2, msg1);
         abcd = _mm_sha1rnds4_epu32(abcd, e1, 1);
         msg0 = _mm_sha1msg1_epu32(msg0, msg1);
@@ -205,7 +205,7 @@ impl Sha1 {
 
         // Rounds 40-43
         e0 = _mm_sha1nexte_epu32(e0, msg2);
-        e1 = abcd;
+        e1 = crate::utils::black_box(abcd);
         msg3 = _mm_sha1msg2_epu32(msg3, msg2);
         abcd = _mm_sha1rnds4_epu32(abcd, e0, 2);
         msg1 = _mm_sha1msg1_epu32(msg1, msg2);
@@ -213,7 +213,7 @@ impl Sha1 {
 
         // Rounds 44-47
         e1 = _mm_sha1nexte_epu32(e1, msg3);
-        e0 = abcd;
+        e0 = crate::utils::black_box(abcd);
         msg0 = _mm_sha1msg2_epu32(msg0, msg3);
         abcd = _mm_sha1rnds4_epu32(abcd, e1, 2);
         msg2 = _mm_sha1msg1_epu32(msg2, msg3);
@@ -221,7 +221,7 @@ impl Sha1 {
 
         // Rounds 48-51
         e0 = _mm_sha1nexte_epu32(e0, msg0);
-        e1 = abcd;
+        e1 = crate::utils::black_box(abcd);
         msg1 = _mm_sha1msg2_epu32(msg1, msg0);
         abcd = _mm_sha1rnds4_epu32(abcd, e0, 2);
         msg3 = _mm_sha1msg1_epu32(msg3, msg0);
@@ -229,7 +229,7 @@ impl Sha1 {
 
         // Rounds 52-55
         e1 = _mm_sha1nexte_epu32(e1, msg1);
-        e0 = abcd;
+        e0 = crate::utils::black_box(abcd);
         msg2 = _mm_sha1msg2_epu32(msg2, msg1);
         abcd = _mm_sha1rnds4_epu32(abcd, e1, 2);
         msg0 = _mm_sha1msg1_epu32(msg0, msg1);
@@ -237,7 +237,7 @@ impl Sha1 {
 
         // Rounds 56-59
         e0 = _mm_sha1nexte_epu32(e0, msg2);
-        e1 = abcd;
+        e1 = crate::utils::black_box(abcd);
         msg3 = _mm_sha1msg2_epu32(msg3, msg2);
         abcd = _mm_sha1rnds4_epu32(abcd, e0, 2);
         msg1 = _mm_sha1msg1_epu32(msg1, msg2);
@@ -245,7 +245,7 @@ impl Sha1 {
 
         // Rounds 60-63
         e1 = _mm_sha1nexte_epu32(e1, msg3);
-        e0 = abcd;
+        e0 = crate::utils::black_box(abcd);
         msg0 = _mm_sha1msg2_epu32(msg0, msg3);
         abcd = _mm_sha1rnds4_epu32(abcd, e1, 3);
         msg2 = _mm_sha1msg1_epu32(msg2, msg3);
@@ -253,7 +253,7 @@ impl Sha1 {
 
         // Rounds 64-67
         e0 = _mm_sha1nexte_epu32(e0, msg0);
-        e1 = abcd;
+        e1 = crate::utils::black_box(abcd);
         msg1 = _mm_sha1msg2_epu32(msg1, msg0);
         abcd = _mm_sha1rnds4_epu32(abcd, e0, 3);
         msg3 = _mm_sha1msg1_epu32(msg3, msg0);
@@ -261,20 +261,20 @@ impl Sha1 {
 
         // Rounds 68-71
         e1 = _mm_sha1nexte_epu32(e1, msg1);
-        e0 = abcd;
+        e0 = crate::utils::black_box(abcd);
         msg2 = _mm_sha1msg2_epu32(msg2, msg1);
         abcd = _mm_sha1rnds4_epu32(abcd, e1, 3);
         msg3 = _mm_xor_si128(msg3, msg1);
 
         // Rounds 72-75
         e0 = _mm_sha1nexte_epu32(e0, msg2);
-        e1 = abcd;
+        e1 = crate::utils::black_box(abcd);
         msg3 = _mm_sha1msg2_epu32(msg3, msg2);
         abcd = _mm_sha1rnds4_epu32(abcd, e0, 3);
 
         // Rounds 76-79
         e1 = _mm_sha1nexte_epu32(e1, msg3);
-        e0 = abcd;
+        e0 = crate::utils::black_box(abcd);
         abcd = _mm_sha1rnds4_epu32(abcd, e1, 3);
 
         // Combine state
@@ -304,7 +304,7 @@ mod tests {
 
     #[test]
     fn test_sha1() {
-        if !is_target_feature_detected!("sha") {
+        if !(is_target_feature_detected!("sha") && is_target_feature_detected!("ssse3") && is_target_feature_detected!("sse2")) {
             eprintln!("sha feature is not detected on this machine.");
             return;
         }

@@ -124,6 +124,18 @@ cfg_if::cfg_if! {
 
         black_box_impl!(float32x4_t, qreg, "neon");
         black_box_impl!(float32x2_t, dreg, "neon");
+    } else if #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] {
+        #[cfg(target_arch = "x86")]
+        use core::arch::x86::*;
+        #[cfg(target_arch = "x86_64")]
+        use core::arch::x86_64::*;
+        black_box_impl!(__m128i, xmm_reg, "sse");
+        black_box_impl!(__m256i, ymm_reg, "avx");
+        black_box_impl!(__m128, xmm_reg, "sse");
+        black_box_impl!(__m256, ymm_reg, "avx");
+        black_box_impl!(__m128d, xmm_reg, "sse");
+        black_box_impl!(__m256d, ymm_reg, "avx");
+
     }
 }
 
