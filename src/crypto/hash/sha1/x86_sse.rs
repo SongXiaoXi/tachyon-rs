@@ -50,6 +50,8 @@ impl Sha1 {
 
         while i + Self::BLOCK_LEN <= data.len() {
             let block = unsafe { crate::utils::slice_to_array_at::<u8, 64>(data, i) };
+            _mm_prefetch(block.as_ptr().add(64) as *const _, _MM_HINT_T0);
+            _mm_prefetch(block.as_ptr().add(64 + 64) as *const _, _MM_HINT_T0);
             process_block_with!(self.state, block);
             self.len += Self::BLOCK_LEN as u64;
             i += Self::BLOCK_LEN;
@@ -127,7 +129,6 @@ mod macros {
 macro_rules! process_block_with {
     ($state:expr, $block:expr) => {{
         let block = $block;
-        let mut state = $state;
 
         let mut s0 = _mm_loadu_si128(block.as_ptr().add(0 * 16) as *const __m128i);
         let mut s1 = _mm_loadu_si128(block.as_ptr().add(1 * 16) as *const __m128i);
@@ -143,11 +144,24 @@ macro_rules! process_block_with {
         s2 = _mm_shuffle_epi8(s2, mask);
         s3 = _mm_shuffle_epi8(s3, mask);
 
+        process_and_load_next!($state, s0, s1, s2, s3);
+    }};
+}
+
+macro_rules! process_and_load_next {
+    ($state:expr, $msg0:expr, $msg1:expr, $msg2:expr, $msg3:expr$(, $block:expr)?) => {{
+        let mut state = $state;
+
         let mut a = state[0];
         let mut b = state[1];
         let mut c = state[2];
         let mut d = state[3];
         let mut e = state[4];
+
+        let mut s0 = $msg0;
+        let mut s1 = $msg1;
+        let mut s2 = $msg2;
+        let mut s3 = $msg3;
 
         let mut w_add_k = [0u32; 16];
 
@@ -216,185 +230,6 @@ macro_rules! process_block_with {
                 )
             };
         );
-        /*
-        macro_rules! update {
-            ($s0:ident,$s1:ident,$s2:ident,$s3:ident,$s4:ident,$s5:ident,$s6:ident,$s7:ident) => {{
-                let t1 = _mm_xor_si128(
-                    _mm_xor_si128(
-                        _mm_xor_si128(
-                            $s0,
-                            $s1,
-                        ),
-                        $s4,
-                    ),
-                    _mm_unpacklo_epi32(_mm_srli_si128($s6, 4), $s7),
-                );
-                $s0 = _mm_slri_epi32!(t1, 1);
-            }};
-        }
-
-        let (
-            mut s0, mut s1,
-            mut s2, mut s3,
-            mut s4, mut s5,
-            mut s6, mut s7,
-        ) = (
-            s0, _mm_srli_si128(s0, 8),
-            s1, _mm_srli_si128(s1, 8),
-            s2, _mm_srli_si128(s2, 8),
-            s3, _mm_srli_si128(s3, 8),
-        );
-
-        sha1_round1!(0);
-        update!(s0, s1, s2, s3, s4, s5, s6, s7);
-        sha1_round1!(1);
-        _mm_storeu_si64(w_add_k.as_mut_ptr().add(0) as *mut _, _mm_add_epi32(s0, k32));
-        sha1_round1!(2);
-        update!(s1, s2, s3, s4, s5, s6, s7, s0);
-        sha1_round1!(3);
-        _mm_storeu_si64(w_add_k.as_mut_ptr().add(2) as *mut _, _mm_add_epi32(s1, k32));
-        sha1_round1!(4);
-        update!(s2, s3, s4, s5, s6, s7, s0, s1);
-        sha1_round1!(5);
-        let k32 = _mm_set1_epi32(0x6ed9eba1u32 as i32);
-        _mm_storeu_si64(w_add_k.as_mut_ptr().add(4) as *mut _, _mm_add_epi32(s2, k32));
-        sha1_round1!(6);
-        update!(s3, s4, s5, s6, s7, s0, s1, s2);
-        sha1_round1!(7);
-        _mm_storeu_si64(w_add_k.as_mut_ptr().add(6) as *mut _, _mm_add_epi32(s3, k32));
-        sha1_round1!(8);
-        update!(s4, s5, s6, s7, s0, s1, s2, s3);
-        sha1_round1!(9);
-        _mm_storeu_si64(w_add_k.as_mut_ptr().add(8) as *mut _, _mm_add_epi32(s4, k32));
-        sha1_round1!(10);
-        update!(s5, s6, s7, s0, s1, s2, s3, s4);
-        sha1_round1!(11);
-        _mm_storeu_si64(w_add_k.as_mut_ptr().add(10) as *mut _, _mm_add_epi32(s5, k32));
-        sha1_round1!(12);
-        update!(s6, s7, s0, s1, s2, s3, s4, s5);
-        sha1_round1!(13);
-        _mm_storeu_si64(w_add_k.as_mut_ptr().add(12) as *mut _, _mm_add_epi32(s6, k32));
-        sha1_round1!(14);
-        update!(s7, s0, s1, s2, s3, s4, s5, s6);
-        sha1_round1!(15);
-        _mm_storeu_si64(w_add_k.as_mut_ptr().add(14) as *mut _, _mm_add_epi32(s7, k32));
-
-        std::hint::black_box(w_add_k.as_mut_ptr());
-
-        sha1_round1!(0);
-        update!(s0, s1, s2, s3, s4, s5, s6, s7);
-        sha1_round1!(1);
-        _mm_storeu_si64(w_add_k.as_mut_ptr().add(0) as *mut _, _mm_add_epi32(s0, k32));
-        sha1_round1!(2);
-        update!(s1, s2, s3, s4, s5, s6, s7, s0);
-        sha1_round1!(3);
-        _mm_storeu_si64(w_add_k.as_mut_ptr().add(2) as *mut _, _mm_add_epi32(s1, k32));
-
-        sha1_round2!(4);
-        update!(s2, s3, s4, s5, s6, s7, s0, s1);
-        sha1_round2!(5);
-        _mm_storeu_si64(w_add_k.as_mut_ptr().add(4) as *mut _, _mm_add_epi32(s2, k32));
-        sha1_round2!(6);
-        update!(s3, s4, s5, s6, s7, s0, s1, s2);
-        sha1_round2!(7);
-        _mm_storeu_si64(w_add_k.as_mut_ptr().add(6) as *mut _, _mm_add_epi32(s3, k32));
-        sha1_round2!(8);
-        update!(s4, s5, s6, s7, s0, s1, s2, s3);
-        sha1_round2!(9);
-        let k32 = _mm_set1_epi32(0x8f1bbcdcu32 as i32);
-        _mm_storeu_si64(w_add_k.as_mut_ptr().add(8) as *mut _, _mm_add_epi32(s4, k32));
-        sha1_round2!(10);
-        update!(s5, s6, s7, s0, s1, s2, s3, s4);
-        sha1_round2!(11);
-        _mm_storeu_si64(w_add_k.as_mut_ptr().add(10) as *mut _, _mm_add_epi32(s5, k32));
-        sha1_round2!(12);
-        update!(s6, s7, s0, s1, s2, s3, s4, s5);
-        sha1_round2!(13);
-        _mm_storeu_si64(w_add_k.as_mut_ptr().add(12) as *mut _, _mm_add_epi32(s6, k32));
-        sha1_round2!(14);
-        update!(s7, s0, s1, s2, s3, s4, s5, s6);
-        sha1_round2!(15);
-        _mm_storeu_si64(w_add_k.as_mut_ptr().add(14) as *mut _, _mm_add_epi32(s7, k32));
-
-        std::hint::black_box(w_add_k.as_mut_ptr());
-
-        sha1_round2!(0);
-        update!(s0, s1, s2, s3, s4, s5, s6, s7);
-        sha1_round2!(1);
-        _mm_storeu_si64(w_add_k.as_mut_ptr().add(0) as *mut _, _mm_add_epi32(s0, k32));
-        sha1_round2!(2);
-        update!(s1, s2, s3, s4, s5, s6, s7, s0);
-        sha1_round2!(3);
-        _mm_storeu_si64(w_add_k.as_mut_ptr().add(2) as *mut _, _mm_add_epi32(s1, k32));
-        sha1_round2!(4);
-        update!(s2, s3, s4, s5, s6, s7, s0, s1);
-        sha1_round2!(5);
-        _mm_storeu_si64(w_add_k.as_mut_ptr().add(4) as *mut _, _mm_add_epi32(s2, k32));
-        sha1_round2!(6);
-        update!(s3, s4, s5, s6, s7, s0, s1, s2);
-        sha1_round2!(7);
-        _mm_storeu_si64(w_add_k.as_mut_ptr().add(6) as *mut _, _mm_add_epi32(s3, k32));
-
-        sha1_round3!(8);
-        update!(s4, s5, s6, s7, s0, s1, s2, s3);
-        sha1_round3!(9);
-        _mm_storeu_si64(w_add_k.as_mut_ptr().add(8) as *mut _, _mm_add_epi32(s4, k32));
-        sha1_round3!(10);
-        update!(s5, s6, s7, s0, s1, s2, s3, s4);
-        sha1_round3!(11);
-        _mm_storeu_si64(w_add_k.as_mut_ptr().add(10) as *mut _, _mm_add_epi32(s5, k32));
-        sha1_round3!(12);
-        update!(s6, s7, s0, s1, s2, s3, s4, s5);
-        sha1_round3!(13);
-        let k32 = _mm_set1_epi32(0xca62c1d6u32 as i32);
-        _mm_storeu_si64(w_add_k.as_mut_ptr().add(12) as *mut _, _mm_add_epi32(s6, k32));
-        sha1_round3!(14);
-        update!(s7, s0, s1, s2, s3, s4, s5, s6);
-        sha1_round3!(15);
-        _mm_storeu_si64(w_add_k.as_mut_ptr().add(14) as *mut _, _mm_add_epi32(s7, k32));
-
-        std::hint::black_box(w_add_k.as_mut_ptr());
-
-        sha1_round3!(0);
-        update!(s0, s1, s2, s3, s4, s5, s6, s7);
-        sha1_round3!(1);
-        _mm_storeu_si64(w_add_k.as_mut_ptr().add(0) as *mut _, _mm_add_epi32(s0, k32));
-        sha1_round3!(2);
-        update!(s1, s2, s3, s4, s5, s6, s7, s0);
-        sha1_round3!(3);
-        _mm_storeu_si64(w_add_k.as_mut_ptr().add(2) as *mut _, _mm_add_epi32(s1, k32));
-        sha1_round3!(4);
-        update!(s2, s3, s4, s5, s6, s7, s0, s1);
-        sha1_round3!(5);
-        _mm_storeu_si64(w_add_k.as_mut_ptr().add(4) as *mut _, _mm_add_epi32(s2, k32));
-        sha1_round3!(6);
-        update!(s3, s4, s5, s6, s7, s0, s1, s2);
-        sha1_round3!(7);
-        _mm_storeu_si64(w_add_k.as_mut_ptr().add(6) as *mut _, _mm_add_epi32(s3, k32));
-        sha1_round3!(8);
-        update!(s4, s5, s6, s7, s0, s1, s2, s3);
-        sha1_round3!(9);
-        _mm_storeu_si64(w_add_k.as_mut_ptr().add(8) as *mut _, _mm_add_epi32(s4, k32));
-        sha1_round3!(10);
-        update!(s5, s6, s7, s0, s1, s2, s3, s4);
-        sha1_round3!(11);
-        _mm_storeu_si64(w_add_k.as_mut_ptr().add(10) as *mut _, _mm_add_epi32(s5, k32));
-
-        sha1_round4!(12);
-        update!(s6, s7, s0, s1, s2, s3, s4, s5);
-        sha1_round4!(13);
-        _mm_storeu_si64(w_add_k.as_mut_ptr().add(12) as *mut _, _mm_add_epi32(s6, k32));
-        sha1_round4!(14);
-        update!(s7, s0, s1, s2, s3, s4, s5, s6);
-        sha1_round4!(15);
-        _mm_storeu_si64(w_add_k.as_mut_ptr().add(14) as *mut _, _mm_add_epi32(s7, k32));
-
-        std::hint::black_box(w_add_k.as_mut_ptr());
-
-        crate::const_loop!(i, 0, 16, {
-            sha1_round4!(i);
-        });
-        */
 
         macro_rules! update2 {
             ($s0:expr,$s1:expr,$s2:expr,$s3:expr) => {{
@@ -538,6 +373,28 @@ macro_rules! process_block_with {
         write_w_add_k!(12, s3, k32);
         compiler_barrier!();
 
+        $(
+            let block = $block;
+            s0 = _mm_loadu_si128(block.as_ptr().add(0 * 16) as *const __m128i);
+            s1 = _mm_loadu_si128(block.as_ptr().add(1 * 16) as *const __m128i);
+            s2 = _mm_loadu_si128(block.as_ptr().add(2 * 16) as *const __m128i);
+            s3 = _mm_loadu_si128(block.as_ptr().add(3 * 16) as *const __m128i);
+
+            let mask = _mm_set_epi64x(
+                0x0c0d0e0f08090a0b,
+                0x0405060700010203,
+            );
+            s0 = _mm_shuffle_epi8(s0, mask);
+            s1 = _mm_shuffle_epi8(s1, mask);
+            s2 = _mm_shuffle_epi8(s2, mask);
+            s3 = _mm_shuffle_epi8(s3, mask);
+
+            $msg0 = s0;
+            $msg1 = s1;
+            $msg2 = s2;
+            $msg3 = s3;
+        )?
+
         crate::const_loop!(i, 0, 16, {
             sha1_round4!(i);
         });
@@ -555,7 +412,6 @@ macro_rules! process_block_with {
 
 pub(crate) use process_block_with;
 pub(crate) use process_and_load_next;
-pub(crate) use process_without_load_next;
 
 #[cfg(test)]
 mod tests {

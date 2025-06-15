@@ -50,8 +50,42 @@ impl Sha1 {
             }
         }
 
+        if i + Self::BLOCK_LEN * 2 <= data.len() {
+            let block = unsafe { crate::utils::slice_to_array_at::<u8, 64>(data, i) };
+            let mut s0 = _mm_loadu_si128(block.as_ptr().add(0 * 16) as *const __m128i);
+            let mut s1 = _mm_loadu_si128(block.as_ptr().add(1 * 16) as *const __m128i);
+            let mut s2 = _mm_loadu_si128(block.as_ptr().add(2 * 16) as *const __m128i);
+            let mut s3 = _mm_loadu_si128(block.as_ptr().add(3 * 16) as *const __m128i);
+
+            let mask = _mm_set_epi64x(
+                0x0c0d0e0f08090a0b,
+                0x0405060700010203,
+            );
+            s0 = _mm_shuffle_epi8(s0, mask);
+            s1 = _mm_shuffle_epi8(s1, mask);
+            s2 = _mm_shuffle_epi8(s2, mask);
+            s3 = _mm_shuffle_epi8(s3, mask);
+            
+
+            while i + Self::BLOCK_LEN * 2 <= data.len() {
+                let next_block = unsafe { crate::utils::slice_to_array_at::<u8, 64>(data, i + Self::BLOCK_LEN) };
+                _mm_prefetch(next_block.as_ptr().add(64) as *const _, _MM_HINT_T0);
+                _mm_prefetch(next_block.as_ptr().add(128) as *const _, _MM_HINT_T0);
+                process_and_load_next!(self.state, s0, s1, s2, s3, next_block);
+                self.len += Self::BLOCK_LEN as u64;
+                i += Self::BLOCK_LEN;
+            }
+
+            process_and_load_next!(self.state, s0, s1, s2, s3);
+            self.len += Self::BLOCK_LEN as u64;
+            i += Self::BLOCK_LEN;
+        }
+
+
         while i + Self::BLOCK_LEN <= data.len() {
             let block = unsafe { crate::utils::slice_to_array_at::<u8, 64>(data, i) };
+            _mm_prefetch(block.as_ptr().add(64) as *const _, _MM_HINT_T0);
+            _mm_prefetch(block.as_ptr().add(128) as *const _, _MM_HINT_T0);
             process_block_with!(self.state, block);
             self.len += Self::BLOCK_LEN as u64;
             i += Self::BLOCK_LEN;

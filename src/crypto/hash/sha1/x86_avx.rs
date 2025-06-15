@@ -53,7 +53,7 @@ impl Sha1 {
         while i + Self::BLOCK_LEN <= data.len() {
             let block = unsafe { crate::utils::slice_to_array_at::<u8, 64>(data, i) };
             _mm_prefetch(block.as_ptr().add(64) as *const _, _MM_HINT_T0);
-            _mm_prefetch(block.as_ptr().add(64 + 64) as *const _, _MM_HINT_T0);
+            _mm_prefetch(block.as_ptr().add(128) as *const _, _MM_HINT_T0);
             process_block_with!(self.state, block);
             self.len += Self::BLOCK_LEN as u64;
             i += Self::BLOCK_LEN;

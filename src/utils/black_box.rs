@@ -39,6 +39,18 @@ black_box_impl!(i32, reg);
 black_box_impl!(i64, reg);
 black_box_impl!(isize, reg);
 
+#[cfg(not(target_pointer_width = "64"))]
+impl BlackBox for u64 {
+    #[inline(always)]
+    fn black_box(x: u64) -> u64 { x }
+}
+
+#[cfg(not(target_pointer_width = "64"))]
+impl BlackBox for i64 {
+    #[inline(always)]
+    fn black_box(x: i64) -> i64 { x }
+}
+
 impl<T> BlackBox for *const T {
     #[inline(always)]
     fn black_box(mut x: *const T) -> *const T {
