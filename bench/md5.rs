@@ -20,7 +20,7 @@ fn bench_md5(c: &mut Criterion) {
 
         let test_name = format!("{} crate md5 hash {}", cpu_name(), human_readable_size(size));
         c.bench_function(&test_name, |b| b.iter(|| {
-            black_box(md5::compute(&data));
+            std::hint::black_box(md5::compute(&data));
         }));
     }
 

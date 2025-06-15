@@ -1,6 +1,6 @@
 # tachyon
 
-**tachyon** is a high-performance algorithm library written in Rust, providing SIMD-accelerated implementations for both x86 (AVX/SSE) and ARM (NEON) architectures.
+**tachyon** is a high-performance algorithm library written in Rust, providing SIMD-accelerated implementations for both x86 (AVX/SSE) and ARM (NEON) architectures, to outperform even hand-tuned assembly in many cases.
 
 ## Features
 
@@ -8,6 +8,17 @@
 - Focused on **performance** — carefully tuned SIMD intrinsics for critical code paths.
 - SIMD implementations often outperform well-known on ARM NEON.
 - Designed for performance-critical applications like embedded systems, secure networking, and data processing.
+
+## Usage
+
+Add to your `Cargo.toml`:
+```toml
+tachyon = { git = "https://github.com/SongXiaoXi/tachyon-rs" }
+```
+or use cargo:
+```bash
+cargo add tachyon --git https://github.com/SongXiaoXi/tachyon-rs
+```
 
 ## Supported Algorithms
 
