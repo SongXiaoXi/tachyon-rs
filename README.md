@@ -19,6 +19,14 @@ or use cargo:
 ```bash
 cargo add tachyon --git https://github.com/SongXiaoXi/tachyon-rs
 ```
+### MD5 Example
+```rust
+use tachyon::crypto::hash::md5;
+
+let digest = md5::compute(b"hello world");
+```
+
+More examples can be found in the [bench](bench) directory.
 
 ## Supported Algorithms
 
@@ -53,11 +61,12 @@ cargo add tachyon --git https://github.com/SongXiaoXi/tachyon-rs
 | Apple M4      | 11700.03 MiB/s    | 8751.87 MiB/s  | 11043.29 MiB/s(3.5.0) |
 | Apple M1      | 8222.73 MiB/s    | 7051.54 MiB/s  | 8142.95 MiB/s(3.5.0) |
 | Apple A16     | 9029.59 MiB/s    | 7663.91 MiB/s  | 7329.87 MiB/s(3.2.1) |
+| Apple A12z    | 4855.90 MiB/s    | 4472.18 MiB/s  | 4477.18 MiB/s(3.2.1) |
 | Snapdragon 888 | 4473.29 MiB/s   | 3950.03 MiB/s | 3972.17 MiB/s(3.4.1) |
 
 ### Chacha20-Poly1305 encryption of 64 KiB:
 
-| Platform       | tachyon-rs      | tachyon-rs(tune-cpu=generic) | ring(v0.17.14)  | OpenSSL |
+| Platform       | tachyon-rs      | tachyon-rs<br>(tune-cpu=generic) | ring(v0.17.14)  | OpenSSL |
 |----------------|-----------------|------------------------------|-----------------|---------|
 | Apple M4       | 1729.85 MiB/s   | 2672.39 MiB/s | 2168.00 MiB/s  | 2355.95 MiB/s(3.5.0) |
 | Apple M1       | 1147.70 MiB/s   | 2010.69 MiB/s | 1620.36 MiB/s  | 1816.42 MiB/s(3.5.0) |
@@ -71,6 +80,7 @@ cargo add tachyon --git https://github.com/SongXiaoXi/tachyon-rs
 | Apple M4       | 952.30 MiB/s    | 848.33 MiB/s  | 981.83 MiB/s(3.5.0) |
 | Apple M1       | 693.20 MiB/s    | 607.06 MiB/s  | 692.56 MiB/s(3.5.0) |
 | Apple A16      | 751.58 MiB/s    | 652.44 MiB/s  | 682.52 MiB/s(3.2.1) |
+| Apple A12z     | 544.82 MiB/s    | 445.10 MiB/s  | 517.96 MiB/s(3.2.1) |
 | Snapdragon 888 | 620.08 MiB/s    | 477.37 MiB/s  | 588.63 MiB/s(3.4.1) |
 | i7-10700K      | 1096.69 MiB/s   | 609.86 MiB/s  | 1048.98 MiB/s(3.5.0) |
 | i7-3770        | 809.03 MiB/s    | 455.70 MiB/s  | 757.12 MiB/s(3.4.1) |
