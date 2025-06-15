@@ -68,7 +68,7 @@ impl Sha1 {
     }
 
     #[inline]
-    pub fn finalize(mut self) -> [u8; Self::DIGEST_LEN] {
+    pub fn finalize(self) -> [u8; Self::DIGEST_LEN] {
         let mlen = self.len + self.offset as u64; // in bytes
         let mlen_bits = mlen * 8; // in bits
 
@@ -95,21 +95,22 @@ impl Sha1 {
         padding[plen..plen + Self::MLEN_SIZE].copy_from_slice(&mlen_octets);
 
         let data = &padding[..plen + Self::MLEN_SIZE];
-        self.update(data);
+        let mut sha1 = self;
+        sha1.update(data);
 
-        debug_assert_eq!(self.offset, 0);
+        debug_assert_eq!(sha1.offset, 0);
 
         let mut output = [0u8; Self::DIGEST_LEN];
-        output[0..4].copy_from_slice(&self.state[0].to_be_bytes());
-        output[4..8].copy_from_slice(&self.state[1].to_be_bytes());
-        output[8..12].copy_from_slice(&self.state[2].to_be_bytes());
-        output[12..16].copy_from_slice(&self.state[3].to_be_bytes());
-        output[16..20].copy_from_slice(&self.state[4].to_be_bytes());
+        output[0..4].copy_from_slice(&sha1.state[0].to_be_bytes());
+        output[4..8].copy_from_slice(&sha1.state[1].to_be_bytes());
+        output[8..12].copy_from_slice(&sha1.state[2].to_be_bytes());
+        output[12..16].copy_from_slice(&sha1.state[3].to_be_bytes());
+        output[16..20].copy_from_slice(&sha1.state[4].to_be_bytes());
         output
     }
 
     #[inline]
-    pub fn oneshot<T: AsRef<[u8]>>(data: T) -> [u8; Self::DIGEST_LEN] {
+    pub fn oneshot<T: AsRef<[u8]>>(data: T) -> [u8; 20] {
         let mut m = Self::new();
         m.update(data.as_ref());
         m.finalize()
@@ -124,6 +125,11 @@ impl Sha1 {
     #[inline(always)]
     fn process_block_with(&mut self, block: &[u8; 64]) {
         let mut w = [0u32; 16];
+        // use crate::utils::merge_bits;
+        #[inline(always)]
+        fn merge_bits(a: u32, b: u32, mask: u32) -> u32 {
+            (a & !mask).wrapping_add(b & mask)
+        }
 
         let mut a = self.state[0];
         let mut b = self.state[1];
@@ -139,11 +145,11 @@ impl Sha1 {
                 block[i * 4 + 2],
                 block[i * 4 + 3],
             ]);
-            let (f, k) = (crate::utils::merge_bits(d, c, b), 0x5a827999);
+            let f = merge_bits(d, c, b);
             let temp = a.rotate_left(5)
                 .wrapping_add(f)
                 .wrapping_add(e)
-                .wrapping_add(k)
+                .wrapping_add(0x5a827999)
                 .wrapping_add(w[i]);
             e = d;
             d = c;
@@ -155,11 +161,11 @@ impl Sha1 {
         #[crate::loop_unroll(i, 16, 4)]
         fn loop_unroll() {
             w[i % 16] = (w[(i - 3) % 16] ^ w[(i - 8) % 16] ^ w[(i - 14) % 16] ^ w[(i - 16) % 16]).rotate_left(1);
-            let (f, k) = (crate::utils::merge_bits(d, c, b), 0x5a827999);
+            let f = merge_bits(d, c, b);
             let temp = a.rotate_left(5)
                 .wrapping_add(f)
                 .wrapping_add(e)
-                .wrapping_add(k)
+                .wrapping_add(0x5a827999)
                 .wrapping_add(w[i % 16]);
             e = d;
             d = c;
@@ -171,11 +177,11 @@ impl Sha1 {
         #[crate::loop_unroll(i, 20, 20)]
         fn loop_unroll() {
             w[i % 16] = (w[(i - 3) % 16] ^ w[(i - 8) % 16] ^ w[(i - 14) % 16] ^ w[(i - 16) % 16]).rotate_left(1);
-            let (f, k) = (b ^ c ^ d, 0x6ed9eba1);
+            let f = b ^ c ^ d;
             let temp = a.rotate_left(5)
                 .wrapping_add(f)
                 .wrapping_add(e)
-                .wrapping_add(k)
+                .wrapping_add(0x6ed9eba1)
                 .wrapping_add(w[i % 16]);
             e = d;
             d = c;
@@ -187,11 +193,12 @@ impl Sha1 {
         #[crate::loop_unroll(i, 40, 20)]
         fn loop_unroll() {
             w[i % 16] = (w[(i - 3) % 16] ^ w[(i - 8) % 16] ^ w[(i - 14) % 16] ^ w[(i - 16) % 16]).rotate_left(1);
-            let (f, k) = ((b & c) | (b & d) | (c & d), 0x8f1bbcdc);
+            // (b & c) | (b & d) | (c & d);
+            let f = (c & (b ^ d)) | (b & d);
             let temp = a.rotate_left(5)
                 .wrapping_add(f)
                 .wrapping_add(e)
-                .wrapping_add(k)
+                .wrapping_add(0x8f1bbcdc)
                 .wrapping_add(w[i % 16]);
             e = d;
             d = c;
@@ -203,11 +210,11 @@ impl Sha1 {
         #[crate::loop_unroll(i, 60, 20)]
         fn loop_unroll() {
             w[i % 16] = (w[(i - 3) % 16] ^ w[(i - 8) % 16] ^ w[(i - 14) % 16] ^ w[(i - 16) % 16]).rotate_left(1);
-            let (f, k) = (b ^ c ^ d, 0xca62c1d6);
+            let f = b ^ c ^ d;
             let temp = a.rotate_left(5)
                 .wrapping_add(f)
                 .wrapping_add(e)
-                .wrapping_add(k)
+                .wrapping_add(0xca62c1d6)
                 .wrapping_add(w[i % 16]);
             e = d;
             d = c;

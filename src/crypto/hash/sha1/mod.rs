@@ -3,6 +3,14 @@ pub mod soft;
 pub mod dynamic;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub mod x86;
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+pub mod x86_bmi;
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+pub mod x86_sse;
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+pub mod x86_avx;
+#[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
+pub mod arm;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
 pub mod arm_ni;
 
