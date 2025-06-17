@@ -1,3 +1,4 @@
+#[allow(unused_imports)]
 use super::PARALLEL_BLOCKS;
 
 macro_rules! impl_chacha20_for_target {
@@ -13,7 +14,7 @@ impl $name {
     pub const NONCE_LEN: usize = 12;
     pub const COUNTER_LEN: usize = 4;
 
-    const STATE_LEN: usize = 16; // len in doubleword (32-bits)
+    pub(crate) const STATE_LEN: usize = 16; // len in doubleword (32-bits)
 
     //
     // sigma constant b"expand 16-byte k" in little-endian encoding
@@ -94,46 +95,7 @@ impl $name {
 
         let mut start = 0;
         cfg_if::cfg_if! {
-        if #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] {
-            unsafe {
-                let mut state = [
-                    _mm_set1_epi32(initial_state[0] as _),
-                    _mm_set1_epi32(initial_state[1] as _),
-                    _mm_set1_epi32(initial_state[2] as _),
-                    _mm_set1_epi32(initial_state[3] as _),
-                    _mm_set1_epi32(initial_state[4] as _),
-                    _mm_set1_epi32(initial_state[5] as _),
-                    _mm_set1_epi32(initial_state[6] as _),
-                    _mm_set1_epi32(initial_state[7] as _),
-                    _mm_set1_epi32(initial_state[8] as _),
-                    _mm_set1_epi32(initial_state[9] as _),
-                    _mm_set1_epi32(initial_state[10] as _),
-                    _mm_set1_epi32(initial_state[11] as _),
-                    _mm_set1_epi32(initial_state[12] as _),
-                    _mm_set1_epi32(initial_state[13] as _),
-                    _mm_set1_epi32(initial_state[14] as _),
-                    _mm_set1_epi32(initial_state[15] as _),
-                ];
-                state[12] = _mm_add_epi32(state[12], _mm_set_epi32(3, 2, 1, 0));
-                let res = rounds_vertical(&state);
-               
-                #[crate::loop_unroll(block, 0, 4)]
-                fn loop_unroll() {
-                    let block = &res[block];
-                    let block00 = _mm_loadu_si128(plaintext_or_ciphertext.as_ptr().add(start) as _);
-                    let block01 = _mm_loadu_si128(plaintext_or_ciphertext.as_ptr().add(start + 16) as _);
-                    let block02 = _mm_loadu_si128(plaintext_or_ciphertext.as_ptr().add(start + 32) as _);
-                    let block03 = _mm_loadu_si128(plaintext_or_ciphertext.as_ptr().add(start + 48) as _);
-
-                    _mm_storeu_si128(plaintext_or_ciphertext.as_ptr().add(start) as _, _mm_xor_si128(block00, block[0]));
-                    _mm_storeu_si128(plaintext_or_ciphertext.as_ptr().add(start + 16) as _, _mm_xor_si128(block01, block[1]));
-                    _mm_storeu_si128(plaintext_or_ciphertext.as_ptr().add(start + 32) as _, _mm_xor_si128(block02, block[2]));
-                    _mm_storeu_si128(plaintext_or_ciphertext.as_ptr().add(start + 48) as _, _mm_xor_si128(block03, block[3]));
-                    start += Self::BLOCK_LEN;
-                }
-            }
-        }
-        else if #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+        if #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
         {
             unsafe {
                 let mut state = [
@@ -246,53 +208,6 @@ impl $name {
         let mut start = 0;
         let mut len_remain = plaintext_or_ciphertext.len();
 
-        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        if len_remain >= Self::BLOCK_LEN * PARALLEL_BLOCKS {
-            unsafe {
-
-                let mut state = [
-                    _mm_set1_epi32(initial_state[0] as _),
-                    _mm_set1_epi32(initial_state[1] as _),
-                    _mm_set1_epi32(initial_state[2] as _),
-                    _mm_set1_epi32(initial_state[3] as _),
-                    _mm_set1_epi32(initial_state[4] as _),
-                    _mm_set1_epi32(initial_state[5] as _),
-                    _mm_set1_epi32(initial_state[6] as _),
-                    _mm_set1_epi32(initial_state[7] as _),
-                    _mm_set1_epi32(initial_state[8] as _),
-                    _mm_set1_epi32(initial_state[9] as _),
-                    _mm_set1_epi32(initial_state[10] as _),
-                    _mm_set1_epi32(initial_state[11] as _),
-                    _mm_set1_epi32(initial_state[12] as _),
-                    _mm_set1_epi32(initial_state[13] as _),
-                    _mm_set1_epi32(initial_state[14] as _),
-                    _mm_set1_epi32(initial_state[15] as _),
-                ];
-                state[12] = _mm_add_epi32(state[12], _mm_set_epi32(3, 2, 1, 0));
-                while len_remain >= Self::BLOCK_LEN * PARALLEL_BLOCKS {
-                    let res = rounds_vertical(&state);
-                    state[12] = _mm_add_epi32(state[12], _mm_set1_epi32(PARALLEL_BLOCKS as _));
-                   
-                    #[crate::loop_unroll(block, 0, 4)]
-                    fn loop_unroll() {
-                        let block = &res[block];
-                        let block00 = _mm_loadu_si128(plaintext_or_ciphertext.as_ptr().add(start) as _);
-                        let block01 = _mm_loadu_si128(plaintext_or_ciphertext.as_ptr().add(start + 16) as _);
-                        let block02 = _mm_loadu_si128(plaintext_or_ciphertext.as_ptr().add(start + 32) as _);
-                        let block03 = _mm_loadu_si128(plaintext_or_ciphertext.as_ptr().add(start + 48) as _);
-
-                        _mm_storeu_si128(plaintext_or_ciphertext.as_ptr().add(start) as _, _mm_xor_si128(block00, block[0]));
-                        _mm_storeu_si128(plaintext_or_ciphertext.as_ptr().add(start + 16) as _, _mm_xor_si128(block01, block[1]));
-                        _mm_storeu_si128(plaintext_or_ciphertext.as_ptr().add(start + 32) as _, _mm_xor_si128(block02, block[2]));
-                        _mm_storeu_si128(plaintext_or_ciphertext.as_ptr().add(start + 48) as _, _mm_xor_si128(block03, block[3]));
-                        start += Self::BLOCK_LEN;
-                    }
-
-                    len_remain -= Self::BLOCK_LEN * 4;
-                }
-                initial_state[12] += (start / Self::BLOCK_LEN) as u32;
-            }
-        }
         #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
         if len_remain >= Self::BLOCK_LEN * PARALLEL_BLOCKS {
             unsafe {
@@ -439,16 +354,13 @@ impl $name {
 impl_chacha20_for_target!(Chacha20Soft, 32, 64, 12, 4);
 
 cfg_if::cfg_if!{
-    if #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] {
-        impl_chacha20_for_target!(Chacha20SSE, 32, 64, 12, 4, "sse2");
-        impl_chacha20_for_target!(Chacha20AVX, 32, 64, 12, 4, "avx");
-    } else if #[cfg(any(target_arch = "aarch64", target_arch = "arm"))] {
+    if #[cfg(any(target_arch = "aarch64", target_arch = "arm"))] {
         impl_chacha20_for_target!(Chacha20Neon, 32, 64, 12, 4, "neon");
     }
 }
 
 #[inline(always)]
-fn quarter_round(state: &mut [u32; 16], a: usize, b: usize, c: usize, d: usize) {
+pub(crate) fn quarter_round(state: &mut [u32; 16], a: usize, b: usize, c: usize, d: usize) {
     state[a] = state[a].wrapping_add(state[b]);
     state[d] = state[d] ^ state[a];
     state[d] = state[d].rotate_left(16);
@@ -487,7 +399,7 @@ pub(crate) fn diagonal_rounds(state: &mut [u32; 16]) {
 }
 
 #[inline(always)]
-fn add_si512(a: &mut [u32; Chacha20Soft::STATE_LEN], b: &[u32; Chacha20Soft::STATE_LEN]) {
+pub(crate) fn add_si512(a: &mut [u32; Chacha20Soft::STATE_LEN], b: &[u32; Chacha20Soft::STATE_LEN]) {
     for i in 0..Chacha20Soft::STATE_LEN {
         a[i] = a[i].wrapping_add(b[i]);
     }
@@ -501,196 +413,7 @@ pub(crate) fn v512_i8_xor(a: &mut [u8; Chacha20Soft::BLOCK_LEN], b: &[u8; Chacha
 }
 
 cfg_if::cfg_if! {
-    if #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] {
-        #[cfg(target_arch = "x86_64")]
-        use std::arch::x86_64::*;
-        #[cfg(target_arch = "x86")]
-        use std::arch::x86::*;
-
-        macro_rules! rotate_left {
-            ($v:expr, 8) => {
-                #[cfg(target_feature = "ssse3")]
-                {
-                    $v = _mm_shuffle_epi8($v, _mm_set_epi8(14, 13, 12, 15, 10, 9, 8, 11, 6, 5, 4, 7, 2, 1, 0, 3));
-                }
-                #[cfg(not(target_feature = "ssse3"))]
-                {
-                    $v = _mm_or_si128(_mm_slli_epi32($v, 8), _mm_srli_epi32($v, 32 - 8));
-                }
-            };
-            ($v:expr, 16) => {
-                #[cfg(target_feature = "ssse3")]
-                {
-                    $v = _mm_shuffle_epi8($v, _mm_set_epi8(13, 12, 15, 14, 9, 8, 11, 10, 5, 4, 7, 6, 1, 0, 3, 2));
-                }
-                #[cfg(not(target_feature = "ssse3"))]
-                {
-                    $v = _mm_or_si128(_mm_slli_epi32($v, 16), _mm_srli_epi32($v, 32 - 16));
-                }
-            };
-            ($v:expr, $r:literal) => {
-                $v = _mm_or_si128(_mm_slli_epi32($v, $r), _mm_srli_epi32($v, 32 - $r));
-            };
-        }
-
-        #[target_feature(enable = "sse2")]
-        #[inline]
-        unsafe fn quarter_round_sse(state_04: &mut __m128i, state_48: &mut __m128i, state_8c: &mut __m128i, state_c0: &mut __m128i) {
-            *state_04 = _mm_add_epi32(*state_04, *state_48);
-            *state_c0 = _mm_xor_si128(*state_c0, *state_04);
-            rotate_left!(*state_c0, 16);
-
-            *state_8c = _mm_add_epi32(*state_8c, *state_c0);
-            *state_48 = _mm_xor_si128(*state_48, *state_8c);
-            rotate_left!(*state_48, 12);
-
-            *state_04 = _mm_add_epi32(*state_04, *state_48);
-            *state_c0 = _mm_xor_si128(*state_c0, *state_04);
-            rotate_left!(*state_c0, 8);
-
-            *state_8c = _mm_add_epi32(*state_8c, *state_c0);
-            *state_48 = _mm_xor_si128(*state_48, *state_8c);
-            rotate_left!(*state_48, 7);
-        }
-
-        #[target_feature(enable = "sse2")]
-        #[inline]
-        unsafe fn double_quarter_round(v: &mut [[__m128i; 4]; PARALLEL_BLOCKS]) {
-            add_xor_rot(v);
-            rows_to_cols(v);
-            add_xor_rot(v);
-            cols_to_rows(v);
-        }
-
-        // #[target_feature(enable = "sse2")]
-        #[inline(always)]
-        unsafe fn rounds_vertical(v: &[__m128i; 16]) -> [[__m128i; 4]; PARALLEL_BLOCKS] {
-            let mut res = *v;
-
-            #[target_feature(enable = "sse2")]
-            #[inline]
-            unsafe fn quarter_round_sse_idx(state: &mut [__m128i; 16], a: usize, b: usize, c: usize, d: usize) {
-                let mut sa = state[a];
-                let mut sb = state[b];
-                let mut sc = state[c];
-                let mut sd = state[d];
-                quarter_round_sse(&mut sa, &mut sb, &mut sc, &mut sd);
-                state[a] = sa;
-                state[b] = sb;
-                state[c] = sc;
-                state[d] = sd;
-            }
-
-            #[target_feature(enable = "sse2")]
-            #[inline]
-            unsafe fn double_quarter_round_sse(v: &mut [__m128i; 16]) {
-                quarter_round_sse_idx(v, 0, 4, 8, 12);
-                quarter_round_sse_idx(v, 1, 5, 9, 13);
-                quarter_round_sse_idx(v, 2, 6, 10, 14);
-                quarter_round_sse_idx(v, 3, 7, 11, 15);
-                quarter_round_sse_idx(v, 0, 5, 10, 15);
-                quarter_round_sse_idx(v, 1, 6, 11, 12);
-                quarter_round_sse_idx(v, 2, 7, 8, 13);
-                quarter_round_sse_idx(v, 3, 4, 9, 14);
-            }
-
-            #[crate::loop_unroll(_, 0, 10)]
-            fn loop_unroll() {
-                double_quarter_round_sse(&mut res);
-            }
-
-            #[crate::loop_unroll(i, 0, 16)]
-            fn loop_unroll() {
-                res[i] = _mm_add_epi32(res[i], v[i]);
-            }
-            interleave4x4(res)
-        }
-
-        #[target_feature(enable = "sse2")]
-        #[inline]
-        unsafe fn interleave4x4(v: [__m128i; 16]) -> [[__m128i; 4]; 4] {
-            let mut res = [[v[0]; 4]; 4];
-            #[crate::loop_unroll(i, 0, 4)]
-            fn loop_unroll() {
-                let a = v[i * 4 + 0];
-                let b = v[i * 4 + 1];
-                let c = v[i * 4 + 2];
-                let d = v[i * 4 + 3];
-                let tmp0 = _mm_unpacklo_epi32(a, b);
-                let tmp1 = _mm_unpackhi_epi32(a, b);
-                let tmp2 = _mm_unpacklo_epi32(c, d);
-                let tmp3 = _mm_unpackhi_epi32(c, d);
-
-                res[0][i] = _mm_unpacklo_epi64(tmp0, tmp2);
-                res[1][i] = _mm_unpackhi_epi64(tmp0, tmp2);
-                res[2][i] = _mm_unpacklo_epi64(tmp1, tmp3);
-                res[3][i] = _mm_unpackhi_epi64(tmp1, tmp3);
-            }
-            res
-        }
-
-        #[target_feature(enable = "sse2")]
-        #[inline]
-        unsafe fn rounds(v: &[__m128i; 4]) -> [[__m128i; 4]; PARALLEL_BLOCKS] {
-            let mut res = [*v; PARALLEL_BLOCKS];
-            #[crate::loop_unroll(i, 0, 4)]
-            fn loop_unroll() {
-                res[i][3] = _mm_add_epi32(res[i][3], _mm_set_epi32(0, 0, 0, i as i32));
-            }
-
-            #[crate::loop_unroll(_, 0, 10)]
-            fn loop_unroll() {
-                double_quarter_round(&mut res);
-            }
-
-            #[crate::loop_unroll(i, 0, 4)]
-            fn loop_unroll() {
-                #[crate::loop_unroll(j, 0, 4)]
-                fn loop_unroll() {
-                    res[i][j] = _mm_add_epi32(res[i][j], v[j]);
-                }
-
-                // add the counter since `v` is lacking updated counter values
-                res[i][3] = _mm_add_epi32(res[i][3], _mm_set_epi32(0, 0, 0, i as i32));
-            }
-
-            res
-        }
-
-        #[target_feature(enable = "sse2")]
-        #[inline]
-        unsafe fn rows_to_cols(blocks: &mut [[__m128i; 4]; PARALLEL_BLOCKS]) {
-            #[crate::loop_unroll(i, 0, 4)]
-            fn loop_unroll() {
-                let [a, _, c, d] = &mut blocks[i];
-                *c = _mm_shuffle_epi32(*c, 0b_00_11_10_01); // _MM_SHUFFLE(0, 3, 2, 1)
-                *d = _mm_shuffle_epi32(*d, 0b_01_00_11_10); // _MM_SHUFFLE(1, 0, 3, 2)
-                *a = _mm_shuffle_epi32(*a, 0b_10_01_00_11); // _MM_SHUFFLE(2, 1, 0, 3)
-            }
-        }
-
-        #[target_feature(enable = "sse2")]
-        #[inline]
-        unsafe fn cols_to_rows(blocks: &mut [[__m128i; 4]; PARALLEL_BLOCKS]) {
-            #[crate::loop_unroll(i, 0, 4)]
-            fn loop_unroll() {
-                let [a, _, c, d] = &mut blocks[i];
-                *c = _mm_shuffle_epi32(*c, 0b_10_01_00_11); // _MM_SHUFFLE(2, 1, 0, 3)
-                *d = _mm_shuffle_epi32(*d, 0b_01_00_11_10); // _MM_SHUFFLE(1, 0, 3, 2)
-                *a = _mm_shuffle_epi32(*a, 0b_00_11_10_01); // _MM_SHUFFLE(0, 3, 2, 1)
-            }
-        }
-
-        #[target_feature(enable = "sse2")]
-        #[inline]
-        unsafe fn add_xor_rot(blocks: &mut [[__m128i; 4]; PARALLEL_BLOCKS]) {
-            #[crate::loop_unroll(i, 0, 4)]
-            fn loop_unroll() {
-                let [a, b, c, d] = &mut blocks[i];
-                quarter_round_sse(a, b, c, d);
-            }
-        }
-    } else if #[cfg(all(any(target_arch = "aarch64", target_arch = "arm"), target_feature = "neon"))] {
+    if #[cfg(all(any(target_arch = "aarch64", target_arch = "arm"), target_feature = "neon"))] {
         #[cfg(target_arch = "arm")]
         use core::arch::arm::*;
         #[cfg(target_arch = "aarch64")]
@@ -883,14 +606,11 @@ cfg_if::cfg_if! {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_chacha20() {
+macro_rules! chacha20_test_case {
+    ($name:ty) => {
         let key = [0u8; 32];
         let nonce = [0u8; 12];
-        let chacha20 = Chacha20Soft::new(key);
+        let chacha20 = <$name>::new(key);
         let mut plaintext = [0u8; 64];
         let expected_ciphertext = [
             0x76, 0xB9, 0xE2, 0xAE, 0xA4, 0xF4, 0x3B, 0x97,
@@ -991,5 +711,19 @@ mod tests {
         chacha20.decrypt_slice(0, &nonce, &mut ciphertext);
         decrypted.copy_from_slice(&ciphertext);
         assert_eq!(plaintext, decrypted);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_chacha20() {
+        chacha20_test_case!(Chacha20Soft);
+        #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
+        if crate::is_hw_feature_detected!("neon") {
+            chacha20_test_case!(Chacha20Neon);
+        }
     }
 }
