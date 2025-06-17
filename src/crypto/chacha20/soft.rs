@@ -1,4 +1,4 @@
-pub(crate) const PARALLEL_BLOCKS: usize = 4;
+use super::PARALLEL_BLOCKS;
 
 macro_rules! impl_chacha20_for_target {
     ($name:tt, $key_len:literal, $block_len:literal, $nonce_len:literal, $counter_len:literal$(, $feature:literal)?) => {
@@ -447,18 +447,6 @@ cfg_if::cfg_if!{
     }
 }
 
-cfg_if::cfg_if!{
-    if #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "avx"))] {
-        pub type Chacha20 = Chacha20AVX;
-    } else if #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "sse2"))] {
-        pub type Chacha20 = Chacha20SSE;
-    } else if #[cfg(all(any(target_arch = "aarch64", target_arch = "arm"), target_feature = "neon"))] {
-        pub type Chacha20 = Chacha20Neon;
-    } else {
-        pub type Chacha20 = Chacha20Soft;
-    }
-}
-
 #[inline(always)]
 fn quarter_round(state: &mut [u32; 16], a: usize, b: usize, c: usize, d: usize) {
     state[a] = state[a].wrapping_add(state[b]);
@@ -499,15 +487,15 @@ pub(crate) fn diagonal_rounds(state: &mut [u32; 16]) {
 }
 
 #[inline(always)]
-fn add_si512(a: &mut [u32; Chacha20::STATE_LEN], b: &[u32; Chacha20::STATE_LEN]) {
-    for i in 0..Chacha20::STATE_LEN {
+fn add_si512(a: &mut [u32; Chacha20Soft::STATE_LEN], b: &[u32; Chacha20Soft::STATE_LEN]) {
+    for i in 0..Chacha20Soft::STATE_LEN {
         a[i] = a[i].wrapping_add(b[i]);
     }
 }
 
 #[inline(always)]
-pub(crate) fn v512_i8_xor(a: &mut [u8; Chacha20::BLOCK_LEN], b: &[u8; Chacha20::BLOCK_LEN]) {
-    for i in 0..Chacha20::BLOCK_LEN {
+pub(crate) fn v512_i8_xor(a: &mut [u8; Chacha20Soft::BLOCK_LEN], b: &[u8; Chacha20Soft::BLOCK_LEN]) {
+    for i in 0..Chacha20Soft::BLOCK_LEN {
         a[i] ^= b[i];
     }
 }
@@ -902,7 +890,7 @@ mod tests {
     fn test_chacha20() {
         let key = [0u8; 32];
         let nonce = [0u8; 12];
-        let chacha20 = Chacha20::new(key);
+        let chacha20 = Chacha20Soft::new(key);
         let mut plaintext = [0u8; 64];
         let expected_ciphertext = [
             0x76, 0xB9, 0xE2, 0xAE, 0xA4, 0xF4, 0x3B, 0x97,
