@@ -1,7 +1,7 @@
 use crate::utils::constant_time_eq;
 
 macro_rules! impl_chacha20_for_target {
-    ($name:tt, $chacha20:ty, $poly1305:ty, $key_len:literal, $block_len:literal, $nonce_len:literal, $tag_len:literal$(, $feature:literal)?) => {
+    ($name:tt$(,$avx2:literal)?, $chacha20:ty$(,$avx512:literal)?, $poly1305:ty, $key_len:literal, $block_len:literal, $nonce_len:literal, $tag_len:literal$(, $feature:literal)?) => {
 #[derive(Clone, Copy)]
 pub struct $name {
     chacha20: $chacha20,
@@ -95,6 +95,43 @@ impl $name {
         let mut chacha_counter = 1;
 
         use crate::crypto::chacha20;
+
+        
+
+        $(
+            _ = $avx2;
+            if len_remain >= Self::BLOCK_LEN * chacha20::PARALLEL_BLOCKS * 2 {
+                               
+                type Blocks = [u8; <$chacha20>::BLOCK_LEN * chacha20::PARALLEL_BLOCKS * 2];
+                // SAFETY: We know that the slice is at least BLOCK_LEN * PARALLEL_BLOCKS * 2 long
+                let blocks: &mut Blocks = unsafe { crate::utils::slice_to_array_at_mut(plaintext_in_ciphertext_out, start) };
+                // SAFETY: We know that the slice lifetime is valid
+                let mut blocks: &mut Blocks = unsafe { core::mem::transmute(blocks) };
+
+                self.chacha20.op_8blocks(chacha_counter, &nonce, blocks);
+                chacha_counter += chacha20::PARALLEL_BLOCKS as u32 * 2;
+                start += Self::BLOCK_LEN * chacha20::PARALLEL_BLOCKS * 2;
+                len_remain -= Self::BLOCK_LEN * chacha20::PARALLEL_BLOCKS * 2;
+ 
+
+                while len_remain >= Self::BLOCK_LEN * chacha20::PARALLEL_BLOCKS * 2 {
+                    let new_blocks: &mut Blocks = unsafe { crate::utils::slice_to_array_at_mut(plaintext_in_ciphertext_out, start) };
+                    let new_blocks: &mut Blocks = unsafe { core::mem::transmute(new_blocks) };
+                    
+                    let poly_blocks_ptr = blocks.as_ptr() as *const [u8; Self::BLOCK_LEN * chacha20::PARALLEL_BLOCKS];
+                    poly1305.update_16_blocks(&*poly_blocks_ptr);
+                    poly1305.update_16_blocks(&*poly_blocks_ptr.add(1));
+                    self.chacha20.op_8blocks(chacha_counter, &nonce, new_blocks);
+                    blocks = new_blocks;
+                    chacha_counter += chacha20::PARALLEL_BLOCKS as u32 * 2;
+                    start += Self::BLOCK_LEN * chacha20::PARALLEL_BLOCKS * 2;
+                    len_remain -= Self::BLOCK_LEN * chacha20::PARALLEL_BLOCKS * 2;
+                }
+                let poly_blocks_ptr = blocks.as_ptr() as *const [u8; Self::BLOCK_LEN * chacha20::PARALLEL_BLOCKS];
+                poly1305.update_16_blocks(&*poly_blocks_ptr);
+                poly1305.update_16_blocks(&*poly_blocks_ptr.add(1));
+            }
+        )?
 
         if len_remain >= Self::BLOCK_LEN * chacha20::PARALLEL_BLOCKS {
             // SAFETY: We know that the slice is at least BLOCK_LEN * PARALLEL_BLOCKS long
@@ -219,6 +256,7 @@ cfg_if::cfg_if! {
     if #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] {
         impl_chacha20_for_target!(Chacha20Poly1305SSE, super::chacha20::Chacha20SSE, super::poly1305::Poly1305, 32, 64, 12, 16, "sse2");
         impl_chacha20_for_target!(Chacha20Poly1305AVX, super::chacha20::Chacha20AVX, super::poly1305::Poly1305, 32, 64, 12, 16, "avx");
+        impl_chacha20_for_target!(Chacha20Poly1305AVX2, "avx2", super::chacha20::Chacha20AVX2, super::poly1305::Poly1305, 32, 64, 12, 16, "avx2");
     } else if #[cfg(any(target_arch = "arm", target_arch = "aarch64"))] {
         impl_chacha20_for_target!(Chacha20Poly1305Neon, super::chacha20::Chacha20Neon, super::poly1305::Poly1305, 32, 64, 12, 16, "neon");
     }
@@ -240,11 +278,16 @@ pub union Chacha20Poly1305Dynamic {
     sse: Chacha20Poly1305SSE,
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     avx: Chacha20Poly1305AVX,
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    avx2: Chacha20Poly1305AVX2,
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    #[cfg(feature = "nightly")]
+    avx512: Chacha20Poly1305AVX512,
     #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
     neon: Chacha20Poly1305Neon,
 }
 
-// x86: 0 - soft, 1 - sse2, 2 - avx
+// x86: 0 - soft, 1 - sse2, 2 - avx, 3 - avx2, 4 - avx512
 // arm: 0 - soft, 1 - neon
 static mut CHACHA20_POLY1305_IDX: u32 = u32::MAX;
 
@@ -273,6 +316,19 @@ impl Chacha20Poly1305Dynamic {
                     "x86_64" => ("avx"),
                 ) {
                     idx = 2;
+                    if crate::is_hw_feature_detected!(
+                        "x86" => ("avx2"),
+                        "x86_64" => ("avx2"),
+                    ) {
+                        idx = 3;
+                        #[cfg(feature = "nightly")]
+                        if crate::is_hw_feature_detected!(
+                            "x86" => ("avx512f","avx512dq"),
+                            "x86_64" => ("avx512f","avx512dq"),
+                        ) {
+                            idx = 4;
+                        }
+                    }
                 }
             } else {
                 idx = 0;
@@ -286,6 +342,8 @@ impl Chacha20Poly1305Dynamic {
             1 => Chacha20Poly1305Dynamic { sse: Chacha20Poly1305SSE::new(key) },
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             2 => Chacha20Poly1305Dynamic { avx: Chacha20Poly1305AVX::new(key) },
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            3 => Chacha20Poly1305Dynamic { avx2: Chacha20Poly1305AVX2::new(key) },
             #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
             1 => Chacha20Poly1305Dynamic { neon: Chacha20Poly1305Neon::new(key) },
             _ => unreachable!(),
@@ -311,6 +369,8 @@ impl Chacha20Poly1305Dynamic {
                 1 => self.sse.encrypt_slice(nonce, aad, aead_pkt),
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 2 => self.avx.encrypt_slice(nonce, aad, aead_pkt),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                3 => self.avx2.encrypt_slice(nonce, aad, aead_pkt),
                 #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
                 1 => self.neon.encrypt_slice(nonce, aad, aead_pkt),
                 _ => unreachable!(),
@@ -331,6 +391,8 @@ impl Chacha20Poly1305Dynamic {
                 1 => self.sse.decrypt_slice(nonce, aad, aead_pkt),
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 2 => self.avx.decrypt_slice(nonce, aad, aead_pkt),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                3 => self.avx2.decrypt_slice(nonce, aad, aead_pkt),
                 #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
                 1 => self.neon.decrypt_slice(nonce, aad, aead_pkt),
                 _ => unreachable!(),
@@ -352,6 +414,8 @@ impl Chacha20Poly1305Dynamic {
                 1 => self.sse.encrypt_slice_detached(nonce, aad, plaintext_in_ciphertext_out, tag_out),
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 2 => self.avx.encrypt_slice_detached(nonce, aad, plaintext_in_ciphertext_out, tag_out),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                3 => self.avx2.encrypt_slice_detached(nonce, aad, plaintext_in_ciphertext_out, tag_out),
                 #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
                 1 => self.neon.encrypt_slice_detached(nonce, aad, plaintext_in_ciphertext_out, tag_out),
                 _ => unreachable!(),
@@ -373,6 +437,8 @@ impl Chacha20Poly1305Dynamic {
                 1 => self.sse.decrypt_slice_detached(nonce, aad, ciphertext_in_plaintext_out, tag_in),
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 2 => self.avx.decrypt_slice_detached(nonce, aad, ciphertext_in_plaintext_out, tag_in),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                3 => self.avx2.decrypt_slice_detached(nonce, aad, ciphertext_in_plaintext_out, tag_in),
                 #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
                 1 => self.neon.decrypt_slice_detached(nonce, aad, ciphertext_in_plaintext_out, tag_in),
                 _ => unreachable!(),
@@ -459,6 +525,10 @@ mod tests {
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         if crate::is_hw_feature_detected!("avx") {
             test_chacha20_poly1305_impl!(Chacha20Poly1305AVX);
+        }
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        if crate::is_hw_feature_detected!("avx2") {
+            test_chacha20_poly1305_impl!(Chacha20Poly1305AVX2);
         }
         #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
         if cfg!(target_feature = "neon") {

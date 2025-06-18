@@ -86,6 +86,77 @@ impl $name {
     }
 
     #[inline(always)]
+    pub(crate) fn op_8blocks(&self, init_block_counter: u32, nonce: &[u8; $nonce_len], data: &mut [u8; 512]) {
+        debug_assert_eq!(nonce.len(), Self::NONCE_LEN);
+
+        let mut initial_state = self.initial_state;
+        // Counter (32-bits, little-endian)
+        initial_state[12] = init_block_counter;
+        // Nonce (96-bits, little-endian)
+        initial_state[13] = u32::from_le_bytes([nonce[0], nonce[1], nonce[2], nonce[3]]);
+        initial_state[14] = u32::from_le_bytes([nonce[4], nonce[5], nonce[6], nonce[7]]);
+        initial_state[15] = u32::from_le_bytes([nonce[8], nonce[9], nonce[10], nonce[11]]);
+
+        let mut start = 0;
+
+        unsafe {
+            let mut state = [
+                _mm256_set1_epi32(initial_state[0] as _),
+                _mm256_set1_epi32(initial_state[1] as _),
+                _mm256_set1_epi32(initial_state[2] as _),
+                _mm256_set1_epi32(initial_state[3] as _),
+                _mm256_set1_epi32(initial_state[4] as _),
+                _mm256_set1_epi32(initial_state[5] as _),
+                _mm256_set1_epi32(initial_state[6] as _),
+                _mm256_set1_epi32(initial_state[7] as _),
+                _mm256_set1_epi32(initial_state[8] as _),
+                _mm256_set1_epi32(initial_state[9] as _),
+                _mm256_set1_epi32(initial_state[10] as _),
+                _mm256_set1_epi32(initial_state[11] as _),
+                _mm256_set1_epi32(initial_state[12] as _),
+                _mm256_set1_epi32(initial_state[13] as _),
+                _mm256_set1_epi32(initial_state[14] as _),
+                _mm256_set1_epi32(initial_state[15] as _),
+            ];
+            state[12] = _mm256_add_epi32(state[12], _mm256_set_epi32(7, 6, 5, 4, 3, 2, 1, 0));
+            let res = rounds_vertical_avx2(&state);
+            
+            #[crate::loop_unroll(block, 0, 4)]
+            fn loop_unroll() {
+                let block = &res[block];
+                let block00 = _mm_loadu_si128(data.as_ptr().add(start + 0) as _);
+                let block01 = _mm_loadu_si128(data.as_ptr().add(start + 16) as _);
+                let block02 = _mm_loadu_si128(data.as_ptr().add(start + 32) as _);
+                let block03 = _mm_loadu_si128(data.as_ptr().add(start + 48) as _);
+
+                _mm_storeu_si128(data.as_ptr().add(start + 0) as _, _mm_xor_si128(block00, _mm256_castsi256_si128(block[0])));
+                _mm_storeu_si128(data.as_ptr().add(start + 16) as _, _mm_xor_si128(block01, _mm256_castsi256_si128(block[1])));
+                _mm_storeu_si128(data.as_ptr().add(start + 32) as _, _mm_xor_si128(block02, _mm256_castsi256_si128(block[2])));
+                _mm_storeu_si128(data.as_ptr().add(start + 48) as _, _mm_xor_si128(block03, _mm256_castsi256_si128(block[3])));
+                start += Self::BLOCK_LEN;
+            }
+
+                        
+            #[crate::loop_unroll(block, 0, 4)]
+            fn loop_unroll() {
+                let block = &res[block];
+                let block00 = _mm_loadu_si128(data.as_ptr().add(start + 0) as _);
+                let block01 = _mm_loadu_si128(data.as_ptr().add(start + 16) as _);
+                let block02 = _mm_loadu_si128(data.as_ptr().add(start + 32) as _);
+                let block03 = _mm_loadu_si128(data.as_ptr().add(start + 48) as _);
+
+                _mm_storeu_si128(data.as_ptr().add(start + 0) as _, _mm_xor_si128(block00, _mm256_extracti128_si256(block[0], 1)));
+                _mm_storeu_si128(data.as_ptr().add(start + 16) as _, _mm_xor_si128(block01, _mm256_extracti128_si256(block[1], 1)));
+                _mm_storeu_si128(data.as_ptr().add(start + 32) as _, _mm_xor_si128(block02, _mm256_extracti128_si256(block[2], 1)));
+                _mm_storeu_si128(data.as_ptr().add(start + 48) as _, _mm_xor_si128(block03, _mm256_extracti128_si256(block[3], 1)));
+                start += Self::BLOCK_LEN;
+            }
+        }
+        
+        _ = start;
+    }
+
+    #[inline(always)]
     pub(crate) fn op_4blocks(&self, init_block_counter: u32, nonce: &[u8; $nonce_len], data: &mut [u8; 256]) {
         debug_assert_eq!(nonce.len(), Self::NONCE_LEN);
 
@@ -254,8 +325,7 @@ impl $name {
     }
 }
 
-impl_chacha20_for_target!(Chacha20SSE, 32, 64, 12, 4, "sse2,ssse3");
-impl_chacha20_for_target!(Chacha20AVX, 32, 64, 12, 4, "avx");
+impl_chacha20_for_target!(Chacha20AVX2, 32, 64, 12, 4, "avx2");
 
 type Chacha20Soft = super::soft::Chacha20Soft;
 
@@ -263,7 +333,7 @@ use super::soft::diagonal_rounds;
 use super::soft::add_si512;
 use super::soft::v512_i8_xor;
 
-macro_rules! rotate_left {
+macro_rules! rotate_left_256 {
     // ($v:expr, 8) => {
     //     // #[cfg(target_feature = "ssse3")]
     //     // {
@@ -285,48 +355,43 @@ macro_rules! rotate_left {
     //     // }
     // };
     ($v:expr, $r:literal) => {
-        $v = _mm_xor_si128(_mm_slli_epi32($v, $r), _mm_srli_epi32($v, 32 - $r));
+        $v = _mm256_xor_si256(_mm256_slli_epi32($v, $r), _mm256_srli_epi32($v, 32 - $r));
     };
 }
 
-#[inline(always)]
-pub(crate) unsafe fn quarter_round_sse(state_04: &mut __m128i, state_48: &mut __m128i, state_8c: &mut __m128i, state_c0: &mut __m128i) {
-    *state_04 = _mm_add_epi32(*state_04, *state_48);
-    *state_c0 = _mm_xor_si128(*state_c0, *state_04);
-    rotate_left!(*state_c0, 16);
+use super::x86::rounds_vertical as rounds_vertical;
 
-    *state_8c = _mm_add_epi32(*state_8c, *state_c0);
-    *state_48 = _mm_xor_si128(*state_48, *state_8c);
-    rotate_left!(*state_48, 12);
-
-    *state_04 = _mm_add_epi32(*state_04, *state_48);
-    *state_c0 = _mm_xor_si128(*state_c0, *state_04);
-    rotate_left!(*state_c0, 8);
-
-    *state_8c = _mm_add_epi32(*state_8c, *state_c0);
-    *state_48 = _mm_xor_si128(*state_48, *state_8c);
-    rotate_left!(*state_48, 7);
-}
 
 #[inline(always)]
-pub(crate) unsafe fn double_quarter_round(v: &mut [[__m128i; 4]; PARALLEL_BLOCKS]) {
-    add_xor_rot(v);
-    rows_to_cols(v);
-    add_xor_rot(v);
-    cols_to_rows(v);
-}
-
-#[inline(always)]
-pub(crate) unsafe fn rounds_vertical(v: &[__m128i; 16]) -> [[__m128i; 4]; PARALLEL_BLOCKS] {
+pub(crate) unsafe fn rounds_vertical_avx2(v: &[__m256i; 16]) -> [[__m256i; 4]; PARALLEL_BLOCKS] {
     let mut res = *v;
 
     #[inline(always)]
-    unsafe fn quarter_round_sse_idx(state: &mut [__m128i; 16], a: usize, b: usize, c: usize, d: usize) {
+    unsafe fn quarter_round_avx2(state_04: &mut __m256i, state_48: &mut __m256i, state_8c: &mut __m256i, state_c0: &mut __m256i) {
+        *state_04 = _mm256_add_epi32(*state_04, *state_48);
+        *state_c0 = _mm256_xor_si256(*state_c0, *state_04);
+        rotate_left_256!(*state_c0, 16);
+
+        *state_8c = _mm256_add_epi32(*state_8c, *state_c0);
+        *state_48 = _mm256_xor_si256(*state_48, *state_8c);
+        rotate_left_256!(*state_48, 12);
+
+        *state_04 = _mm256_add_epi32(*state_04, *state_48);
+        *state_c0 = _mm256_xor_si256(*state_c0, *state_04);
+        rotate_left_256!(*state_c0, 8);
+
+        *state_8c = _mm256_add_epi32(*state_8c, *state_c0);
+        *state_48 = _mm256_xor_si256(*state_48, *state_8c);
+        rotate_left_256!(*state_48, 7);
+    }
+
+    #[inline(always)]
+    unsafe fn quarter_round_avx2_idx(state: &mut [__m256i; 16], a: usize, b: usize, c: usize, d: usize) {
         let mut sa = state[a];
         let mut sb = state[b];
         let mut sc = state[c];
         let mut sd = state[d];
-        quarter_round_sse(&mut sa, &mut sb, &mut sc, &mut sd);
+        quarter_round_avx2(&mut sa, &mut sb, &mut sc, &mut sd);
         state[a] = sa;
         state[b] = sb;
         state[c] = sc;
@@ -334,107 +399,51 @@ pub(crate) unsafe fn rounds_vertical(v: &[__m128i; 16]) -> [[__m128i; 4]; PARALL
     }
 
     #[inline(always)]
-    unsafe fn double_quarter_round_sse(v: &mut [__m128i; 16]) {
-        quarter_round_sse_idx(v, 0, 4, 8, 12);
-        quarter_round_sse_idx(v, 1, 5, 9, 13);
-        quarter_round_sse_idx(v, 2, 6, 10, 14);
-        quarter_round_sse_idx(v, 3, 7, 11, 15);
-        quarter_round_sse_idx(v, 0, 5, 10, 15);
-        quarter_round_sse_idx(v, 1, 6, 11, 12);
-        quarter_round_sse_idx(v, 2, 7, 8, 13);
-        quarter_round_sse_idx(v, 3, 4, 9, 14);
+    unsafe fn double_quarter_round_avx2(v: &mut [__m256i; 16]) {
+        quarter_round_avx2_idx(v, 0, 4, 8, 12);
+        quarter_round_avx2_idx(v, 1, 5, 9, 13);
+        quarter_round_avx2_idx(v, 2, 6, 10, 14);
+        quarter_round_avx2_idx(v, 3, 7, 11, 15);
+        quarter_round_avx2_idx(v, 0, 5, 10, 15);
+        quarter_round_avx2_idx(v, 1, 6, 11, 12);
+        quarter_round_avx2_idx(v, 2, 7, 8, 13);
+        quarter_round_avx2_idx(v, 3, 4, 9, 14);
     }
 
     #[crate::loop_unroll(_, 0, 10)]
     fn loop_unroll() {
-        double_quarter_round_sse(&mut res);
+        double_quarter_round_avx2(&mut res);
     }
 
     #[crate::loop_unroll(i, 0, 16)]
     fn loop_unroll() {
-        res[i] = _mm_add_epi32(res[i], v[i]);
-    }
-    interleave4x4(res)
-}
-
-#[inline(always)]
-unsafe fn interleave4x4(v: [__m128i; 16]) -> [[__m128i; 4]; 4] {
-    let mut res = [[v[0]; 4]; 4];
-    #[crate::loop_unroll(i, 0, 4)]
-    fn loop_unroll() {
-        let a = v[i * 4 + 0];
-        let b = v[i * 4 + 1];
-        let c = v[i * 4 + 2];
-        let d = v[i * 4 + 3];
-        let tmp0 = _mm_unpacklo_epi32(a, b);
-        let tmp1 = _mm_unpackhi_epi32(a, b);
-        let tmp2 = _mm_unpacklo_epi32(c, d);
-        let tmp3 = _mm_unpackhi_epi32(c, d);
-
-        res[0][i] = _mm_unpacklo_epi64(tmp0, tmp2);
-        res[1][i] = _mm_unpackhi_epi64(tmp0, tmp2);
-        res[2][i] = _mm_unpacklo_epi64(tmp1, tmp3);
-        res[3][i] = _mm_unpackhi_epi64(tmp1, tmp3);
-    }
-    res
-}
-
-#[inline(always)]
-unsafe fn rounds(v: &[__m128i; 4]) -> [[__m128i; 4]; PARALLEL_BLOCKS] {
-    let mut res = [*v; PARALLEL_BLOCKS];
-    #[crate::loop_unroll(i, 0, 4)]
-    fn loop_unroll() {
-        res[i][3] = _mm_add_epi32(res[i][3], _mm_set_epi32(0, 0, 0, i as i32));
+        res[i] = _mm256_add_epi32(res[i], v[i]);
     }
 
-    #[crate::loop_unroll(_, 0, 10)]
-    fn loop_unroll() {
-        double_quarter_round(&mut res);
-    }
-
-    #[crate::loop_unroll(i, 0, 4)]
-    fn loop_unroll() {
-        #[crate::loop_unroll(j, 0, 4)]
+    #[inline(always)]
+    unsafe fn interleave4x8(v: [__m256i; 16]) -> [[__m256i; 4]; 4] {
+        let mut res = [[v[0]; 4]; 4];
+        #[crate::loop_unroll(i, 0, 4)]
         fn loop_unroll() {
-            res[i][j] = _mm_add_epi32(res[i][j], v[j]);
+            let a = v[i * 4 + 0];
+            let b = v[i * 4 + 1];
+            let c = v[i * 4 + 2];
+            let d = v[i * 4 + 3];
+            let tmp0 = _mm256_unpacklo_epi32(a, b);
+            let tmp1 = _mm256_unpackhi_epi32(a, b);
+            let tmp2 = _mm256_unpacklo_epi32(c, d);
+            let tmp3 = _mm256_unpackhi_epi32(c, d);
+
+            res[0][i] = _mm256_unpacklo_epi64(tmp0, tmp2);
+            res[1][i] = _mm256_unpackhi_epi64(tmp0, tmp2);
+            res[2][i] = _mm256_unpacklo_epi64(tmp1, tmp3);
+            res[3][i] = _mm256_unpackhi_epi64(tmp1, tmp3);
         }
 
-        // add the counter since `v` is lacking updated counter values
-        res[i][3] = _mm_add_epi32(res[i][3], _mm_set_epi32(0, 0, 0, i as i32));
+        res
     }
 
-    res
-}
-
-#[inline(always)]
-unsafe fn rows_to_cols(blocks: &mut [[__m128i; 4]; PARALLEL_BLOCKS]) {
-    #[crate::loop_unroll(i, 0, 4)]
-    fn loop_unroll() {
-        let [a, _, c, d] = &mut blocks[i];
-        *c = _mm_shuffle_epi32(*c, 0b_00_11_10_01); // _MM_SHUFFLE(0, 3, 2, 1)
-        *d = _mm_shuffle_epi32(*d, 0b_01_00_11_10); // _MM_SHUFFLE(1, 0, 3, 2)
-        *a = _mm_shuffle_epi32(*a, 0b_10_01_00_11); // _MM_SHUFFLE(2, 1, 0, 3)
-    }
-}
-
-#[inline(always)]
-unsafe fn cols_to_rows(blocks: &mut [[__m128i; 4]; PARALLEL_BLOCKS]) {
-    #[crate::loop_unroll(i, 0, 4)]
-    fn loop_unroll() {
-        let [a, _, c, d] = &mut blocks[i];
-        *c = _mm_shuffle_epi32(*c, 0b_10_01_00_11); // _MM_SHUFFLE(2, 1, 0, 3)
-        *d = _mm_shuffle_epi32(*d, 0b_01_00_11_10); // _MM_SHUFFLE(1, 0, 3, 2)
-        *a = _mm_shuffle_epi32(*a, 0b_00_11_10_01); // _MM_SHUFFLE(0, 3, 2, 1)
-    }
-}
-
-#[inline(always)]
-unsafe fn add_xor_rot(blocks: &mut [[__m128i; 4]; PARALLEL_BLOCKS]) {
-    #[crate::loop_unroll(i, 0, 4)]
-    fn loop_unroll() {
-        let [a, b, c, d] = &mut blocks[i];
-        quarter_round_sse(a, b, c, d);
-    }
+    interleave4x8(res)
 }
 
 #[cfg(test)]
@@ -443,11 +452,8 @@ mod tests {
 
     #[test]
     fn test_chacha20() {
-        if crate::is_hw_feature_detected!("sse2") {
-            chacha20_test_case!(Chacha20SSE);
-        }
-        if crate::is_hw_feature_detected!("avx") {
-            chacha20_test_case!(Chacha20AVX);
+        if crate::is_hw_feature_detected!("avx2") {
+            chacha20_test_case!(Chacha20AVX2);
         }
     }
 }
