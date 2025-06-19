@@ -1,8 +1,6 @@
-
-
 #[inline(always)]
 #[allow(asm_sub_register)]
-pub unsafe fn copy_chunks_u32(
+pub(crate) unsafe fn copy_chunks_u32(
     dst: *mut u8,
     src: *const u8,
     len: usize,
@@ -21,7 +19,7 @@ pub unsafe fn copy_chunks_u32(
 
 #[inline(always)]
 #[allow(asm_sub_register)]
-pub unsafe fn copy_chunks_usize(
+pub(crate) unsafe fn copy_chunks_usize(
     dst: *mut u8,
     src: *const u8,
     len: usize,
@@ -40,7 +38,7 @@ pub unsafe fn copy_chunks_usize(
 
 #[inline(always)]
 #[allow(asm_sub_register)]
-pub unsafe fn fill_chunks_u8(
+pub(crate) unsafe fn fill_chunks_u8(
     dst: *mut u8,
     byte: u8,
     len: usize,
@@ -111,7 +109,7 @@ unsafe fn estimate_bandwidth_impl() -> f64 {
                 sum = sum.wrapping_add(v);
             });
         }
-        data = crate::utils::black_box(data);
+        data = std::hint::black_box(data);
     }
     let elapsed = start.elapsed();
     let elapsed_us = elapsed.as_micros() as f64;
@@ -120,6 +118,7 @@ unsafe fn estimate_bandwidth_impl() -> f64 {
     bandwidth
 }
 
+/// Estimate the memory bandwidth of a single core.
 pub fn estimate_bandwidth() -> f64 {
     unsafe { estimate_bandwidth_impl() }
 }
