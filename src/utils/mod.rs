@@ -119,10 +119,9 @@ macro_rules! is_hw_feature_detected {
             if !available {
                 #[allow(unused_mut)]
                 #[allow(unused_assignments)]
-                let mut available = false;
-                $(
-                    {
-                        available = true;
+                let mut available = cfg!(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64", target_arch = "arm"));
+                {
+                    $(
                         #[cfg(any(target_arch = "x86"))]
                         if !is_x86_feature_detected!($feat) {
                             available = false;
@@ -145,8 +144,8 @@ macro_rules! is_hw_feature_detected {
                                 available = false;
                             }
                         }
-                    }
-                )*
+                    )+
+                }
                 available
             } else {
                 true
@@ -363,5 +362,4 @@ pub unsafe fn copy_chunks_u8(
     }
 }
 
-mod memory;
-pub use memory::*;
+pub use crate::memory::*;

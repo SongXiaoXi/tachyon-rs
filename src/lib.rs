@@ -7,9 +7,11 @@
 #![cfg_attr(feature = "nightly", cfg_attr(target_arch = "aarch64", feature(stdarch_aarch64_feature_detection)))]
 #![cfg_attr(feature = "nightly", cfg_attr(target_arch = "aarch64", feature(aarch64_unstable_target_feature)))]
 #![cfg_attr(feature = "nightly", cfg_attr(version("1.75.0"), cfg_attr(target_arch = "arm", feature(stdarch_arm_feature_detection))))]
+#![cfg_attr(feature = "nightly", cfg_attr(not(version("1.89.0")), cfg_attr(target_arch = "x86_64", feature(stdarch_x86_avx512))))]
 
 pub mod crypto;
 pub mod string;
+pub mod memory;
 pub mod utils;
 
 pub use tachyon_macros::*;
