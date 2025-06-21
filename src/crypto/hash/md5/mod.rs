@@ -1,6 +1,8 @@
 #[macro_use]
 pub mod soft;
 
+pub use self::soft::Md5;
+
 const INITIAL_STATE: [u32; 4] = [
     0x67452301,
     0xefcdab89,

@@ -88,7 +88,7 @@ impl Sha1 {
 
         let mut padding: [u8; Self::MAX_PAD_LEN] = [0u8; Self::MAX_PAD_LEN];
         // Magic: black_box is used to prevent the compiler from using bzero
-        std::hint::black_box(padding.as_mut_ptr());
+        core::hint::black_box(padding.as_mut_ptr());
         padding[0] = 0x80;
 
         let mlen_octets: [u8; Self::MLEN_SIZE] = mlen_bits.to_be_bytes();

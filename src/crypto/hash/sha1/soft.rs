@@ -88,7 +88,7 @@ impl Sha1 {
 
         let mut padding: [u8; Self::MAX_PAD_LEN] = [0u8; Self::MAX_PAD_LEN];
         // Magic: black_box is used to prevent the compiler from using bzero
-        std::hint::black_box(padding.as_mut_ptr());
+        core::hint::black_box(padding.as_mut_ptr());
         padding[0] = 0x80;
 
         let mlen_octets: [u8; Self::MLEN_SIZE] = mlen_bits.to_be_bytes();
@@ -263,10 +263,9 @@ macro_rules! sha1_test_case {
             0xce, 0x37, 0xf2, 0xa1, 0x9d,
             0x84, 0x24, 0x0d, 0x3a, 0x89,
         ]);
-        let random_data = (0..1000).map(|_| rand::random::<u8>()).collect::<Vec<u8>>();
         for _ in 0..100 {
-            let length = (rand::random::<u32>() % 1000) as usize;
-            let data = &random_data[..length];
+            let length = (rand::random::<u32>() % 8192) as usize;
+            let data = (0..length).map(|_| rand::random::<u8>()).collect::<Vec<u8>>();
             let expected = ring::digest::digest(
                 &ring::digest::SHA1_FOR_LEGACY_USE_ONLY,
                 &data,
@@ -276,14 +275,6 @@ macro_rules! sha1_test_case {
                 expected.as_ref()
             );
         }
-        let expected = ring::digest::digest(
-            &ring::digest::SHA1_FOR_LEGACY_USE_ONLY,
-            &random_data,
-        );
-        assert_eq!(
-            <$name>::oneshot(&random_data),
-            expected.as_ref()
-        );
     };
     () => {
         sha1_test_case!(Sha1);

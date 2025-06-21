@@ -37,8 +37,8 @@ static mut IDX: u32 = u32::MAX;
 unsafe fn init_idx() {
     if IDX == u32::MAX {
         if crate::is_hw_feature_detected!(
-            "x86" => ("sse2", "ssse3", "sha"),
-            "x86_64" => ("sse2", "ssse3", "sha"),
+            "x86" => ("sse2", "ssse3", "sse4.1", "sha"),
+            "x86_64" => ("sse2", "ssse3", "sse4.1", "sha"),
             "aarch64" => ("neon"),
             "arm" => ("neon")
         ) {
