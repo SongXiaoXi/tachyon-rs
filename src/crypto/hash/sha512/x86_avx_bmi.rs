@@ -28,7 +28,7 @@ impl Sha512 {
     }
 }
 
-#[unsafe_target_feature("ssse3,avx")]
+#[unsafe_target_feature("ssse3,avx,bmi1,bmi2")]
 impl Sha512 {
     #[inline(always)]
     pub fn update(&mut self, data: &[u8]) {
@@ -54,7 +54,6 @@ impl Sha512 {
             let block = unsafe { crate::utils::slice_to_array_at::<_, { Self::BLOCK_LEN }>(data, i) };
             _mm_prefetch(block.as_ptr().add(128) as *const _, _MM_HINT_T0);
             _mm_prefetch(block.as_ptr().add(196) as *const _, _MM_HINT_T0);
-            _mm_prefetch(block.as_ptr().add(256) as *const _, _MM_HINT_T0);
             process_block_with!(self.state, block);
             self.len += Self::BLOCK_LEN as u64;
             i += Self::BLOCK_LEN;
@@ -134,7 +133,10 @@ mod tests {
     use super::*;
     #[test]
     fn test_sha512() {
-        if std::arch::is_x86_feature_detected!("ssse3") && std::arch::is_x86_feature_detected!("avx") {
+        if std::arch::is_x86_feature_detected!("ssse3")
+            && std::arch::is_x86_feature_detected!("avx")
+            && std::arch::is_x86_feature_detected!("bmi1")
+            && std::arch::is_x86_feature_detected!("bmi2") {
             sha512_test_case!();
         }
     }

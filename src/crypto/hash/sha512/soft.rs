@@ -88,7 +88,7 @@ impl Sha512 {
 
         let mut padding: [u8; Self::MAX_PAD_LEN] = [0u8; Self::MAX_PAD_LEN];
         // Magic: black_box is used to prevent the compiler from using bzero
-        std::hint::black_box(padding.as_mut_ptr());
+        core::hint::black_box(padding.as_mut_ptr());
         padding[0] = 0x80;
 
         let mlen_octets: [u8; Self::MLEN_SIZE] = mlen_bits.to_be_bytes();
@@ -139,17 +139,16 @@ impl Sha512 {
         let mut g = self.state[6];
         let mut h = self.state[7];
 
-        static _K: [u64; 80] = super::K;
-        #[allow(non_snake_case)]
-        let mut K = _K.as_ptr();
         // Magic: black_box is used to prevent the compiler from using load immediate instructions
-        std::hint::black_box(&mut K);
+        #[allow(non_snake_case)]
+        let K = crate::utils::black_box(super::K.as_ptr());
 
         macro_rules! sha512_round {
             ($i:expr) => {
                 let s0 = a.rotate_right(28) ^ a.rotate_right(34) ^ a.rotate_right(39);
                 let s1 = e.rotate_right(14) ^ e.rotate_right(18) ^ e.rotate_right(41);
-                let maj = (a & b) ^ (a & c) ^ (b & c);
+                // (a & b) ^ (a & c) ^ (b & c);
+                let maj = (a & (b ^ c)) | (b & c);
                 let ch = merge_bits(g, f, e);
                 let t2 = s0.wrapping_add(maj);
                 let t1 = h

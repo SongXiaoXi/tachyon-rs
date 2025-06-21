@@ -11,6 +11,8 @@ pub mod x86_avx;
 #[path = "x86.rs"]
 #[macro_use]
 pub mod x86_ssse3;
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+pub mod x86_avx_bmi;
 
 cfg_if::cfg_if! {
     if #[cfg(all(target_arch = "aarch64", target_feature = "neon", target_feature = "sha3"))] {
@@ -18,11 +20,7 @@ cfg_if::cfg_if! {
     } else if #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "ssse3", target_feature = "avx"))] {
         pub use x86_avx::*;
     } else {
-        #[cfg(not(feature = "disable_dynamic_export"))]
         pub use dynamic::*;
-        #[allow(unused_imports)]
-        #[cfg(feature = "disable_dynamic_export")]
-        pub(crate) use dynamic::*;
     }
 }
 

@@ -2,6 +2,8 @@ use super::soft;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 use super::x86_avx;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+use super::x86_avx_bmi;
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 use super::x86_ssse3;
 #[cfg(target_arch = "aarch64")]
 use super::aarch64;
@@ -14,6 +16,8 @@ pub union Sha512 {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     hw_sha: x86_avx::Sha512,
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    hw_sha_bmi: x86_avx_bmi::Sha512,
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     ssse3_sha: x86_ssse3::Sha512,
     #[cfg(target_arch = "aarch64")]
     ni_sha: aarch64_ni::Sha512,
@@ -21,8 +25,11 @@ pub union Sha512 {
     hw_sha: aarch64::Sha512,
 }
 
-static mut IDX: u32 = u32::MAX; // 0: soft, 1: x86 SSSE3/armv8 Sha512-NI, 2:x86 AVX/armv8 NEON
+// x86: 0 - soft, 1 - SSSE3, 2 - AVX, 3 - AVX+BMI
+// aarch64: 0 - soft, 1 - NEON, 2 - SHA3
+static mut IDX: u32 = u32::MAX;
 
+#[inline(always)]
 unsafe fn init_idx() {
     if IDX == u32::MAX {
         if crate::is_hw_feature_detected!(
@@ -37,6 +44,12 @@ unsafe fn init_idx() {
                 "aarch64" => ("sha3"),
             ) {
                 IDX = 2;
+                if crate::is_hw_feature_detected!(
+                    "x86" => ("bmi1", "bmi2"),
+                    "x86_64" => ("bmi1", "bmi2"),
+                ) {
+                    IDX = 3;
+                }
             }
         } else {
             IDX = 0;
@@ -63,6 +76,10 @@ impl Sha512 {
                     soft: soft::Sha512::new(),
                 },
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                3 => Sha512 {
+                    hw_sha_bmi: x86_avx_bmi::Sha512::new(),
+                },
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 2 => Sha512 {
                     hw_sha: x86_avx::Sha512::new(),
                 },
@@ -74,6 +91,7 @@ impl Sha512 {
                 1 => Sha512 {
                     ssse3_sha: x86_ssse3::Sha512::new(),
                 },
+
                 #[cfg(target_arch = "aarch64")]
                 2 => Sha512 {
                     ni_sha: aarch64_ni::Sha512::new(),
@@ -88,6 +106,8 @@ impl Sha512 {
         unsafe {
             match IDX {
                 0 => self.soft.update(m),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                3 => self.hw_sha_bmi.update(m),
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 2 => self.hw_sha.update(m),
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -106,6 +126,8 @@ impl Sha512 {
         unsafe {
             match IDX {
                 0 => self.soft.finalize(),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                3 => self.hw_sha_bmi.finalize(),
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 2 => self.hw_sha.finalize(),
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -126,6 +148,8 @@ impl Sha512 {
             match IDX {
                 0 => soft::Sha512::oneshot(m),
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                3 => x86_avx_bmi::Sha512::oneshot(m),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 2 => x86_avx::Sha512::oneshot(m),
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 1 => x86_ssse3::Sha512::oneshot(m),
@@ -136,5 +160,15 @@ impl Sha512 {
                 _ => unreachable!(),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sha512() {
+        sha512_test_case!();
     }
 }

@@ -85,7 +85,7 @@ impl Sha512 {
 
         let mut padding: [u8; Self::MAX_PAD_LEN] = [0u8; Self::MAX_PAD_LEN];
         // Magic: black_box is used to prevent the compiler from using bzero
-        std::hint::black_box(padding.as_mut_ptr());
+        core::hint::black_box(padding.as_mut_ptr());
         padding[0] = 0x80;
 
         let mlen_octets: [u8; Self::MLEN_SIZE] = mlen_bits.to_be_bytes();
@@ -162,8 +162,13 @@ macro_rules! process_block_with {
 
             // Magic: black_box is used to prevent the compiler from using load immediate instructions
             #[allow(non_snake_case)]
-            let K = std::hint::black_box(super::K.as_ptr());
+            let K = crate::utils::black_box(super::K.as_ptr());
             let mut w_add_k = [0u64; 16];
+
+            #[inline(always)]
+            fn merge_bits(a: u64, b: u64, mask: u64) -> u64 {
+                (a & !mask).wrapping_add(b & mask)
+            }
 
             vst1q_u64(w_add_k.as_mut_ptr().add(0), vaddq_u64(s0, vld1q_u64(K.add(0))));
             vst1q_u64(w_add_k.as_mut_ptr().add(2), vaddq_u64(s1, vld1q_u64(K.add(2))));
@@ -174,12 +179,20 @@ macro_rules! process_block_with {
             vst1q_u64(w_add_k.as_mut_ptr().add(12), vaddq_u64(s6, vld1q_u64(K.add(12))));
             vst1q_u64(w_add_k.as_mut_ptr().add(14), vaddq_u64(s7, vld1q_u64(K.add(14))));
 
+            macro_rules! compiler_barrier {
+                () => {
+                    // std::hint::black_box(w_add_k.as_mut_ptr());
+                    core::arch::asm!("/* {0} */", in(reg) w_add_k.as_mut_ptr(), options(nostack, preserves_flags));
+                }
+            }
+
             macro_rules! sha512_round {
                 ($i:expr) => {
                     let s0 = a.rotate_right(28) ^ a.rotate_right(34) ^ a.rotate_right(39);
                     let s1 = e.rotate_right(14) ^ e.rotate_right(18) ^ e.rotate_right(41);
-                    let maj = (a & b) ^ (a & c) ^ (b & c);
-                    let ch = crate::utils::merge_bits(g, f, e);
+                    // (a & b) ^ (a & c) ^ (b & c);
+                    let maj = (a & (b ^ c)) | (b & c);
+                    let ch = merge_bits(g, f, e);
                     let t2 = s0.wrapping_add(maj);
                     let t1 = h
                         .wrapping_add(s1)
@@ -198,6 +211,7 @@ macro_rules! process_block_with {
             }
 
             macro_rules! vsrrq_n_u64 {
+                /*
                 ($v:expr, 8) => {
                     {
                         let maskb = [1u8, 2, 3, 4, 5, 6, 7, 0, 9, 10, 11, 12, 13, 14, 15, 8];
@@ -205,6 +219,7 @@ macro_rules! process_block_with {
                         vreinterpretq_u64_u8(vqtbl1q_u8(vreinterpretq_u8_u64($v), mask))
                     }
                 };
+                */
                 ($v:expr, $r:literal) => {
                     vsriq_n_u64(vshlq_n_u64($v, 64 - $r), $v, $r)
                 };
@@ -216,10 +231,10 @@ macro_rules! process_block_with {
                         let t0 = vextq_u64($s0, $s1, 1);
                         let t3 = vextq_u64($s4, $s5, 1);
                         
-                        let sigma0 = veorq_u64(veorq_u64(vsrrq_n_u64!(t0, 1), vsrrq_n_u64!(t0, 8)), vshrq_n_u64(t0, 7));
-                        let sigma1 = veorq_u64(veorq_u64(vsrrq_n_u64!($s7, 19), vsrrq_n_u64!($s7, 61)), vshrq_n_u64($s7, 6));
+                        let sigma0 = veorq_u64(vsrrq_n_u64!(t0, 1), veorq_u64(vsrrq_n_u64!(t0, 8), vshrq_n_u64(t0, 7)));
+                        let sigma1 = veorq_u64(vsrrq_n_u64!($s7, 19), veorq_u64(vsrrq_n_u64!($s7, 61), vshrq_n_u64($s7, 6)));
 
-                        $s0 = vaddq_u64(vaddq_u64(t3, sigma0), vaddq_u64(sigma1, $s0));
+                        $s0 = vaddq_u64(vaddq_u64(t3, $s0), vaddq_u64(sigma1, sigma0));
                     }
                 };
             }
@@ -267,21 +282,21 @@ macro_rules! process_block_with {
 
                 // Magic: black_box is used to prevent the compiler from generating bad re-ordering instructions.
                 // For example, the compiler may generate all NEON instructions first and save all w_add_k values to the stack.
-                std::hint::black_box(w_add_k.as_mut_ptr());
+                compiler_barrier!();
             });
 
             crate::const_loop!(i, 0, 16, {
                 sha512_round!(i);
             });
 
-            state[0] = state[0].wrapping_add(a);
-            state[1] = state[1].wrapping_add(b);
-            state[2] = state[2].wrapping_add(c);
-            state[3] = state[3].wrapping_add(d);
-            state[4] = state[4].wrapping_add(e);
-            state[5] = state[5].wrapping_add(f);
-            state[6] = state[6].wrapping_add(g);
-            state[7] = state[7].wrapping_add(h);
+            state[0] = crate::utils::black_box(state[0].wrapping_add(a));
+            state[1] = crate::utils::black_box(state[1].wrapping_add(b));
+            state[2] = crate::utils::black_box(state[2].wrapping_add(c));
+            state[3] = crate::utils::black_box(state[3].wrapping_add(d));
+            state[4] = crate::utils::black_box(state[4].wrapping_add(e));
+            state[5] = crate::utils::black_box(state[5].wrapping_add(f));
+            state[6] = crate::utils::black_box(state[6].wrapping_add(g));
+            state[7] = crate::utils::black_box(state[7].wrapping_add(h));
 
             $state = state;
         }
