@@ -85,7 +85,7 @@ unsafe fn gf_mul_prepare_k(key: uint8x16_t) -> uint8x16_t {
 #[cfg_attr(target_arch = "aarch64", unsafe_target_feature("neon"))]
 #[cfg_attr(target_arch = "arm", unsafe_target_feature("v7,neon"))]
 #[inline]
-unsafe fn gf_mul_without_modular(a: uint8x16_t, b: uint8x16_t, a_k: uint8x8_t) -> (uint8x16_t, uint8x16_t, uint8x16_t) {
+unsafe fn gf_mul_no_reduce(a: uint8x16_t, b: uint8x16_t, a_k: uint8x8_t) -> (uint8x16_t, uint8x16_t, uint8x16_t) {
     let a_p = a;
     let b_p = b;
 
@@ -98,7 +98,7 @@ unsafe fn gf_mul_without_modular(a: uint8x16_t, b: uint8x16_t, a_k: uint8x8_t) -
 #[cfg_attr(target_arch = "aarch64", unsafe_target_feature("neon"))]
 #[cfg_attr(target_arch = "arm", unsafe_target_feature("v7,neon"))]
 #[inline]
-unsafe fn gf_mul_modular(a: (uint8x16_t, uint8x16_t, uint8x16_t)) -> uint8x16_t {
+unsafe fn gf_mul_reduce(a: (uint8x16_t, uint8x16_t, uint8x16_t)) -> uint8x16_t {
     // reduction like SSE version
     let mut r0 = a.0;
     let mut r1 = a.1;
@@ -132,7 +132,7 @@ unsafe fn gf_mul_modular(a: (uint8x16_t, uint8x16_t, uint8x16_t)) -> uint8x16_t 
 #[cfg_attr(target_arch = "arm", unsafe_target_feature("v7,neon"))]
 #[inline]
 unsafe fn gf_mul(a: uint8x16_t, b: uint8x16_t) -> uint8x16_t {
-    gf_mul_modular(gf_mul_without_modular(a, b, veor_u8(vget_low_u8(a), vget_high_u8(a))))
+    gf_mul_reduce(gf_mul_no_reduce(a, b, veor_u8(vget_low_u8(a), vget_high_u8(a))))
 }
 
 #[inline(always)]
@@ -166,11 +166,9 @@ unsafe fn bswap_128(a: uint8x16_t) -> uint8x16_t {
     cfg_if::cfg_if!{
         if #[cfg(target_arch = "arm")] {
             let a = vcombine_u8(vget_high_u8(a), vget_low_u8(a));
-            let mut a = vrev64q_u8(a);
             // Magic: prevent the compiler from optimizing vrev64q_u8 and vextq_u8 to tbl
             // std::hint::black_box() may not be inlined on armv7
-            std::arch::asm!("/* {a} */", a = inout(qreg) a, options(pure, nomem, preserves_flags, nostack));
-            a
+            crate::utils::black_box(vrev64q_u8(a))
         } else {
             vrev64q_u8(vextq_u8(a, a, 8))
         }
@@ -186,13 +184,17 @@ pub struct GHash {
     key2: uint8x16_t,
     key3: uint8x16_t,
     key4: uint8x16_t,
+    #[cfg(ghash_block_x6)]
     key5: uint8x16_t,
+    #[cfg(ghash_block_x6)]
     key6: uint8x16_t,
     key_k: uint8x8_t,
     key_k2: uint8x8_t,
     key_k3: uint8x8_t,
     key_k4: uint8x8_t,
+    #[cfg(ghash_block_x6)]
     key_k5: uint8x8_t,
+    #[cfg(ghash_block_x6)]
     key_k6: uint8x8_t,
 }
 
@@ -217,20 +219,26 @@ impl GHash {
         let key2 = gf_mul(key, key_orig);
         let key3 = gf_mul(key, key2);
         let key4 = gf_mul(key, key3);
+        #[cfg(ghash_block_x6)]
         let key5 = gf_mul(key, key4);
+        #[cfg(ghash_block_x6)]
         let key6 = gf_mul(key, key5);
 
         let key2 = gf_mul_prepare_k(key2);
         let key3 = gf_mul_prepare_k(key3);
         let key4 = gf_mul_prepare_k(key4);
+        #[cfg(ghash_block_x6)]
         let key5 = gf_mul_prepare_k(key5);
+        #[cfg(ghash_block_x6)]
         let key6 = gf_mul_prepare_k(key6);
 
         let key_k = veor_u8(vget_low_u8(key), vget_high_u8(key));
         let key_k2 = veor_u8(vget_low_u8(key2), vget_high_u8(key2));
         let key_k3 = veor_u8(vget_low_u8(key3), vget_high_u8(key3));
         let key_k4 = veor_u8(vget_low_u8(key4), vget_high_u8(key4));
+        #[cfg(ghash_block_x6)]
         let key_k5 = veor_u8(vget_low_u8(key5), vget_high_u8(key5));
+        #[cfg(ghash_block_x6)]
         let key_k6 = veor_u8(vget_low_u8(key6), vget_high_u8(key6));
 
         Self {
@@ -239,13 +247,17 @@ impl GHash {
             key2,
             key3,
             key4,
+            #[cfg(ghash_block_x6)]
             key5,
+            #[cfg(ghash_block_x6)]
             key6,
             key_k,
             key_k2,
             key_k3,
             key_k4,
+            #[cfg(ghash_block_x6)]
             key_k5,
+            #[cfg(ghash_block_x6)]
             key_k6,
         }
     }
@@ -257,7 +269,7 @@ impl GHash {
         let mut start = 0;
         while mlen >= Self::BLOCK_LEN {
             unsafe {
-                let mut block = std::ptr::read_unaligned(&m[start] as *const u8 as *const uint8x16_t);
+                let mut block = vld1q_u8(m.get_unchecked(start) as *const u8);
                 block = bswap_128(block);
                 block = veorq_u8(block, self.tag);
                 self.tag = gf_mul(self.key, block);
@@ -272,7 +284,7 @@ impl GHash {
 
             let mut last_block = [0u8; Self::BLOCK_LEN];
             // Magic: black_box is used to prevent the compiler from using bzero
-            std::hint::black_box(last_block.as_mut_ptr());
+            core::hint::black_box(last_block.as_mut_ptr());
             last_block[..rlen].copy_from_slice(rem);
 
             unsafe {
@@ -285,47 +297,48 @@ impl GHash {
     }
 
     #[inline(always)]
-    pub(crate) fn update_4block_for_aes(&mut self, m0: &[u8; 16], m1: &[u8; 16], m2: &[u8; 16], m3: &[u8; 16]) {
-        let m0 = bswap_128(vld1q_u8(m0.as_ptr()));
-        let m1 = bswap_128(vld1q_u8(m1.as_ptr()));
-        let m2 = bswap_128(vld1q_u8(m2.as_ptr()));
-        let m3 = bswap_128(vld1q_u8(m3.as_ptr()));
+    pub(crate) fn update_4block_for_aes(&mut self, m: [&[u8; 16]; 4]) {
+        let m0 = bswap_128(vld1q_u8(m[0].as_ptr()));
+        let m1 = bswap_128(vld1q_u8(m[1].as_ptr()));
+        let m2 = bswap_128(vld1q_u8(m[2].as_ptr()));
+        let m3 = bswap_128(vld1q_u8(m[3].as_ptr()));
 
         let m0 = veorq_u8(m0, self.tag);
-        let ret0 = gf_mul_without_modular(self.key4, m0, self.key_k4);
-        let ret1 = gf_mul_without_modular(self.key3, m1, self.key_k3);
-        let ret2 = gf_mul_without_modular(self.key2, m2, self.key_k2);
-        let ret3 = gf_mul_without_modular(self.key, m3, self.key_k);
+        let ret0 = gf_mul_no_reduce(self.key4, m0, self.key_k4);
+        let ret1 = gf_mul_no_reduce(self.key3, m1, self.key_k3);
+        let ret2 = gf_mul_no_reduce(self.key2, m2, self.key_k2);
+        let ret3 = gf_mul_no_reduce(self.key, m3, self.key_k);
 
         let ret_0 = veorq_u8(veorq_u8(veorq_u8(ret0.0, ret1.0), ret2.0), ret3.0);
         let ret_1 = veorq_u8(veorq_u8(veorq_u8(ret0.1, ret1.1), ret2.1), ret3.1);
         let ret_2 = veorq_u8(veorq_u8(veorq_u8(ret0.2, ret1.2), ret2.2), ret3.2);
 
-        self.tag = gf_mul_modular((ret_0, ret_1, ret_2));
+        self.tag = gf_mul_reduce((ret_0, ret_1, ret_2));
     }
 
+    #[cfg(ghash_block_x6)]
     #[inline(always)]
-    pub(crate) fn update_6block_for_aes(&mut self, m0: &[u8; 16], m1: &[u8; 16], m2: &[u8; 16], m3: &[u8; 16], m4: &[u8; 16], m5: &[u8; 16]) {
-        let m0 = bswap_128(vld1q_u8(m0.as_ptr()));
-        let m1 = bswap_128(vld1q_u8(m1.as_ptr()));
-        let m2 = bswap_128(vld1q_u8(m2.as_ptr()));
-        let m3 = bswap_128(vld1q_u8(m3.as_ptr()));
-        let m4 = bswap_128(vld1q_u8(m4.as_ptr()));
-        let m5 = bswap_128(vld1q_u8(m5.as_ptr()));
+    pub(crate) fn update_6block_for_aes(&mut self, m: [&[u8; 16]; 6]) {
+        let m0 = bswap_128(vld1q_u8(m[0].as_ptr()));
+        let m1 = bswap_128(vld1q_u8(m[1].as_ptr()));
+        let m2 = bswap_128(vld1q_u8(m[2].as_ptr()));
+        let m3 = bswap_128(vld1q_u8(m[3].as_ptr()));
+        let m4 = bswap_128(vld1q_u8(m[4].as_ptr()));
+        let m5 = bswap_128(vld1q_u8(m[5].as_ptr()));
 
         let m0 = veorq_u8(m0, self.tag);
-        let ret0 = gf_mul_without_modular(self.key6, m0, self.key_k6);
-        let ret1 = gf_mul_without_modular(self.key5, m1, self.key_k5);
-        let ret2 = gf_mul_without_modular(self.key4, m2, self.key_k4);
-        let ret3 = gf_mul_without_modular(self.key3, m3, self.key_k3);
-        let ret4 = gf_mul_without_modular(self.key2, m4, self.key_k2);
-        let ret5 = gf_mul_without_modular(self.key,  m5, self.key_k);
+        let ret0 = gf_mul_no_reduce(self.key6, m0, self.key_k6);
+        let ret1 = gf_mul_no_reduce(self.key5, m1, self.key_k5);
+        let ret2 = gf_mul_no_reduce(self.key4, m2, self.key_k4);
+        let ret3 = gf_mul_no_reduce(self.key3, m3, self.key_k3);
+        let ret4 = gf_mul_no_reduce(self.key2, m4, self.key_k2);
+        let ret5 = gf_mul_no_reduce(self.key,  m5, self.key_k);
 
         let ret_0 = veorq_u8(veorq_u8(veorq_u8(veorq_u8(veorq_u8(ret0.0, ret1.0), ret2.0), ret3.0), ret4.0), ret5.0);
         let ret_1 = veorq_u8(veorq_u8(veorq_u8(veorq_u8(veorq_u8(ret0.1, ret1.1), ret2.1), ret3.1), ret4.1), ret5.1);
         let ret_2 = veorq_u8(veorq_u8(veorq_u8(veorq_u8(veorq_u8(ret0.2, ret1.2), ret2.2), ret3.2), ret4.2), ret5.2);
 
-        self.tag = gf_mul_modular((ret_0, ret_1, ret_2));
+        self.tag = gf_mul_reduce((ret_0, ret_1, ret_2));
     }
 
     #[inline]

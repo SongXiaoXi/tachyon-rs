@@ -126,28 +126,24 @@ impl GHash {
 
             let mut last_block = [0u8; Self::BLOCK_LEN];
             // Magic: black_box is used to prevent the compiler from using bzero
-            std::hint::black_box(last_block.as_mut_ptr());
+            core::hint::black_box(last_block.as_mut_ptr());
             last_block[..rlen].copy_from_slice(rem);
             self.gf_mul(&last_block);
         }
     }
 
     #[inline(always)]
-    pub(crate) fn update_4block_for_aes(&mut self, m0: &[u8; 16], m1: &[u8; 16], m2: &[u8; 16], m3: &[u8; 16]) {
-        self.gf_mul(m0);
-        self.gf_mul(m1);
-        self.gf_mul(m2);
-        self.gf_mul(m3);
+    pub(crate) fn update_4block_for_aes(&mut self, m: [&[u8; 16]; 4]) {
+        crate::const_loop!(i, 0, 4, {
+            self.gf_mul(m[i]);
+        });
     }
 
     #[inline(always)]
-    pub(crate) fn update_6block_for_aes(&mut self, m0: &[u8; 16], m1: &[u8; 16], m2: &[u8; 16], m3: &[u8; 16], m4: &[u8; 16], m5: &[u8; 16]) {
-        self.gf_mul(m0);
-        self.gf_mul(m1);
-        self.gf_mul(m2);
-        self.gf_mul(m3);
-        self.gf_mul(m4);
-        self.gf_mul(m5);
+    pub(crate) fn update_6block_for_aes(&mut self, m: [&[u8; 16]; 6]) {
+        crate::const_loop!(i, 0, 6, {
+            self.gf_mul(m[i]);
+        });
     }
 
     #[inline(always)]
