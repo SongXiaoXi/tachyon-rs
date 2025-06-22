@@ -37,8 +37,6 @@ rpath = false
 
 [features]
 default = []
-nightly = []
-disable_dynamic_export = []
 variable_time_eq = []
 
 [dependencies]
@@ -58,7 +56,7 @@ md5 = "*"
 
 [lints.rust.unexpected_cfgs]
 level = "warn"
-check-cfg = ["cfg(aes_compact)"]
+check-cfg = ["cfg(aes_compact)","cfg(nightly_feature)","cfg(avx512_feature)","cfg(ghash_block_x6)"]
 
 [[bench]]
 name = "aes_gcm"

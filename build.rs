@@ -16,4 +16,7 @@ fn main() {
     if is_unstable || (version_meta.semver.major >= 1 && version_meta.semver.minor >= 89) {
         println!("cargo:rustc-cfg=avx512_feature");
     }
+    cfg_aliases::cfg_aliases! {
+        ghash_block_x6: {any(target_arch = "x86", target_arch = "x86_64", all(target_vendor = "apple", target_arch = "aarch64"))},
+    }
 }
