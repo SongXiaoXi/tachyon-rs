@@ -119,6 +119,7 @@ macro_rules! impl_hkdf_with_hmac {
 }
 
 impl_hkdf_with_hmac!(HkdfSha1, HmacSha1);
+impl_hkdf_with_hmac!(HkdfMd5, super::hmac::HmacMd5);
 
 #[cfg(test)]
 mod tests {

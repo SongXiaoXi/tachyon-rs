@@ -31,10 +31,12 @@ pub union Sha1 {
 
 // x86: 0 - soft, 1 - sha-ni, 2 - sse, 3 - avx, 4 - bmi2
 // arm: 0 - soft, 1 - neon, 2 - sha2
-static mut IDX: u32 = u32::MAX;
+pub(crate) static mut IDX: u32 = u32::MAX;
 
+/// x86: 0 - soft, 1 - sha-ni, 2 - sse, 3 - avx, 4 - bmi2
+/// arm/aarch64: 0 - soft, 1 - neon, 2 - sha2
 #[inline(always)]
-unsafe fn init_idx() {
+pub(crate) unsafe fn init_idx() -> u32 {
     if IDX == u32::MAX {
         if crate::is_hw_feature_detected!(
             "x86" => ("sse2", "ssse3", "sse4.1", "sha"),
@@ -71,6 +73,7 @@ unsafe fn init_idx() {
             }
         }
     }
+    IDX
 }
 
 impl Sha1 {
@@ -79,9 +82,7 @@ impl Sha1 {
     #[inline(always)]
     pub fn new() -> Self {
         unsafe {
-            init_idx();
-
-            match IDX {
+            match init_idx() {
                 0 => Sha1 {
                     soft: soft::Sha1::new(),
                 },
@@ -160,8 +161,7 @@ impl Sha1 {
 
     pub fn oneshot<T: AsRef<[u8]>>(data: T) -> [u8; 20] {
         unsafe {
-            init_idx();
-            match IDX {
+            match init_idx() {
                 0 => soft::Sha1::oneshot(data),
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 1 => x86::Sha1::oneshot(data),

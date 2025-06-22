@@ -71,27 +71,41 @@ macro_rules! impl_hmac_with_hasher {
 use unsafe_target_feature::unsafe_target_feature;
 
 impl_hmac_with_hasher!(HmacSha1Soft, super::hash::sha1::soft::Sha1, 20);
+impl_hmac_with_hasher!(HmacMd5, super::hash::md5::soft::Md5, 16);
 
 cfg_if::cfg_if!{
     if #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] {
-        impl_hmac_with_hasher!(HmacSha1SSE, super::hash::sha1::x86::Sha1, 20, "sha");
-        type HmacSha1HW = HmacSha1SSE;
+        impl_hmac_with_hasher!(HmacSha1SSE, super::hash::sha1::x86_sse::Sha1, 20, "ssse3");
+        impl_hmac_with_hasher!(HmacSha1AVX, super::hash::sha1::x86_avx::Sha1, 20, "avx");
+        impl_hmac_with_hasher!(HmacSha1Bmi, super::hash::sha1::x86_bmi::Sha1, 20, "bmi1,bmi2");
+        impl_hmac_with_hasher!(HmacSha1NI, super::hash::sha1::x86::Sha1, 20, "sse2,ssse3,sse4.1,sha");
     } else if #[cfg(any(target_arch = "aarch64", target_arch = "arm"))] {
-        impl_hmac_with_hasher!(HmacSha1ARM, super::hash::sha1::arm::Sha1, 20, "sha2");
-        type HmacSha1HW = HmacSha1ARM;
+        impl_hmac_with_hasher!(HmacSha1NI, super::hash::sha1::arm::Sha1, 20, "sha2");
+        impl_hmac_with_hasher!(HmacSha1NEON, super::hash::sha1::arm_ni::Sha1, 20, "neon");
     }
 }
 
 #[derive(Clone, Copy)]
 pub union HmacSha1 {
     soft: HmacSha1Soft,
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64", target_arch = "arm"))]
-    hw: HmacSha1HW,
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    x86_sse: HmacSha1SSE,
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    x86_avx: HmacSha1AVX,
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    x86_bmi: HmacSha1Bmi,
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    x86_ni: HmacSha1NI,
+    #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
+    arm_ni: HmacSha1NI,
+    #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
+    arm_neon: HmacSha1NEON,
 }
 
-// x86: 0 - soft, 1 - sha-ni
-// aarch64/arm: 0 - soft, 1 - sha2
-static mut HMAC_SHA1_IDX: u32 = u32::MAX;
+/// x86: 0 - soft, 1 - sha-ni, 2 - sse, 3 - avx, 4 - bmi2
+/// arm/aarch64: 0 - soft, 1 - neon, 2 - sha2
+use super::hash::sha1::dynamic::IDX as HMAC_SHA1_IDX;
+use super::hash::sha1::dynamic::init_idx as init_hmac_sha1_idx;
 
 impl HmacSha1 {
     pub const BLOCK_LEN: usize = 64;
@@ -100,26 +114,33 @@ impl HmacSha1 {
     #[inline(always)]
     pub fn new(key: &[u8]) -> Self {
         unsafe {
-            if HMAC_SHA1_IDX == u32::MAX {
-                if crate::is_hw_feature_detected!(
-                    "x86" => ("sse2", "sha"),
-                    "x86_64" => ("sse2", "sha"),
-                    "aarch64" => ("sha2"),
-                    "arm" => ("neon", "sha2")
-                ) {
-                    HMAC_SHA1_IDX = 1;
-                } else {
-                    HMAC_SHA1_IDX = 0;
-                }
-            }
-
-            match HMAC_SHA1_IDX {
+            match init_hmac_sha1_idx() {
                 0 => Self {
                     soft: HmacSha1Soft::new(key),
                 },
-                #[cfg(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64", target_arch = "arm"))]
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                2 => Self {
+                    x86_sse: HmacSha1SSE::new(key),
+                },
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                3 => Self {
+                    x86_avx: HmacSha1AVX::new(key),
+                },
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                4 => Self {
+                    x86_bmi: HmacSha1Bmi::new(key),
+                },
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 1 => Self {
-                    hw: HmacSha1HW::new(key),
+                    x86_ni: HmacSha1NI::new(key),
+                },
+                #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
+                1 => Self {
+                    arm_neon: HmacSha1NEON::new(key),
+                },
+                #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
+                2 => Self {
+                    arm_ni: HmacSha1NI::new(key),
                 },
                 _ => unreachable!(),
             }
@@ -131,8 +152,18 @@ impl HmacSha1 {
         unsafe {
             match HMAC_SHA1_IDX {
                 0 => self.soft.update(m),
-                #[cfg(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64", target_arch = "arm"))]
-                1 => self.hw.update(m),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                1 => self.x86_ni.update(m),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                2 => self.x86_sse.update(m),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                3 => self.x86_avx.update(m),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                4 => self.x86_bmi.update(m),
+                #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
+                1 => self.arm_neon.update(m),
+                #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
+                2 => self.arm_ni.update(m),
                 _ => unreachable!(),
             }
         }
@@ -143,16 +174,41 @@ impl HmacSha1 {
         unsafe {
             match HMAC_SHA1_IDX {
                 0 => self.soft.finalize(),
-                #[cfg(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64", target_arch = "arm"))]
-                1 => self.hw.finalize(),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                1 => self.x86_ni.finalize(),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                2 => self.x86_sse.finalize(),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                3 => self.x86_avx.finalize(),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                4 => self.x86_bmi.finalize(),
+                #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
+                1 => self.arm_neon.finalize(),
+                #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
+                2 => self.arm_ni.finalize(),
                 _ => unreachable!(),
             }
         }
     }
 
     pub fn oneshot(key: &[u8], m: &[u8]) -> [u8; Self::TAG_LEN] {
-        let mut mac = Self::new(key);
-        mac.update(m);
-        mac.finalize()
+        unsafe {
+            match init_hmac_sha1_idx() {
+                0 => HmacSha1Soft::oneshot(key, m),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                1 => HmacSha1NI::oneshot(key, m),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                2 => HmacSha1SSE::oneshot(key, m),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                3 => HmacSha1AVX::oneshot(key, m),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                4 => HmacSha1Bmi::oneshot(key, m),
+                #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
+                1 => HmacSha1NEON::oneshot(key, m),
+                #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
+                2 => HmacSha1NI::oneshot(key, m),
+                _ => unreachable!(),
+            }
+        }
     }
 }

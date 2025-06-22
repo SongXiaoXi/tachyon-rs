@@ -1,4 +1,5 @@
 
+#[derive(Clone, Copy)]
 pub struct Md5 {
     state: [u32; 4],
     buffer: [u8; 64],
