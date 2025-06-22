@@ -221,7 +221,7 @@ macro_rules! impl_block_cipher_with_gcm_mode {
 
                 const IS_SOFT: bool = $cipher::IS_SOFT && $ghash::IS_SOFT;
 
-                #[cfg(any(target_arch = "x86", target_arch = "x86_64", all(target_vendor = "apple", target_arch = "aarch64")))]
+                #[cfg(ghash_block_x6)]
                 if !$cipher::IS_SOFT && !$ghash::IS_SOFT && plen_remain >= Self::BLOCK_LEN * 6 {
                     let [mut ectr0, mut ectr1, mut ectr2, mut ectr3, mut ectr4, mut ectr5] = Self::ctr32x6_(&counter_block, &mut counter);
 
@@ -233,18 +233,18 @@ macro_rules! impl_block_cipher_with_gcm_mode {
                     let mut block5 = unsafe {slice_to_array_at(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 5).clone()};
 
                     self.cipher.encrypt_6_blocks_xor(
-                        &ectr0,
+                        [&ectr0,
                         &ectr1,
                         &ectr2,
                         &ectr3,
                         &ectr4,
-                        &ectr5,
-                        &mut block0,
+                        &ectr5],
+                        [&mut block0,
                         &mut block1,
                         &mut block2,
                         &mut block3,
                         &mut block4,
-                        &mut block5,
+                        &mut block5],
                     );
 
                     [ectr0, ectr1, ectr2, ectr3, ectr4, ectr5] = Self::ctr32x6_(&counter_block, &mut counter);
@@ -268,7 +268,8 @@ macro_rules! impl_block_cipher_with_gcm_mode {
                         let next_block3 = unsafe {slice_to_array_at(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 3).clone()};
                         let next_block4 = unsafe {slice_to_array_at(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 4).clone()};
                         let next_block5 = unsafe {slice_to_array_at(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 5).clone()};
-                        mac.update_6block_for_aes(&block0, &block1, &block2, &block3, &block4, &block5);
+
+                        mac.update_6block_for_aes([&block0, &block1, &block2, &block3, &block4, &block5]);
 
                         block0 = next_block0;
                         block1 = next_block1;
@@ -278,18 +279,18 @@ macro_rules! impl_block_cipher_with_gcm_mode {
                         block5 = next_block5;
 
                         self.cipher.encrypt_6_blocks_xor(
-                            &ectr0,
+                            [&ectr0,
                             &ectr1,
                             &ectr2,
                             &ectr3,
                             &ectr4,
-                            &ectr5,
-                            &mut block0,
+                            &ectr5,],
+                            [&mut block0,
                             &mut block1,
                             &mut block2,
                             &mut block3,
                             &mut block4,
-                            &mut block5,
+                            &mut block5,],
                         );
 
                         [ectr0, ectr1, ectr2, ectr3, ectr4, ectr5] = Self::ctr32x6_(&counter_block, &mut counter);
@@ -308,7 +309,7 @@ macro_rules! impl_block_cipher_with_gcm_mode {
                     }
 
                     counter -= 6;
-                    mac.update_6block_for_aes(&block0, &block1, &block2, &block3, &block4, &block5);
+                    mac.update_6block_for_aes([&block0, &block1, &block2, &block3, &block4, &block5]);
                 }
 
                 while IS_SOFT && plen_remain >= Self::BLOCK_LEN * 4 {
@@ -330,7 +331,7 @@ macro_rules! impl_block_cipher_with_gcm_mode {
                         *slice_to_array_at_mut(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 2) = block2;
                         *slice_to_array_at_mut(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 3) = block3;
                     }
-                    mac.update_4block_for_aes(&block0, &block1, &block2, &block3);
+                    mac.update_4block_for_aes([&block0, &block1, &block2, &block3]);
 
                     start += Self::BLOCK_LEN * 4;
                     plen_remain -= Self::BLOCK_LEN * 4;
@@ -345,14 +346,14 @@ macro_rules! impl_block_cipher_with_gcm_mode {
                     let mut block3 = unsafe {slice_to_array_at(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 3).clone()};
 
                     self.cipher.encrypt_4_blocks_xor(
-                        &ectr0,
+                        [&ectr0,
                         &ectr1,
                         &ectr2,
-                        &ectr3,
-                        &mut block0,
+                        &ectr3],
+                        [&mut block0,
                         &mut block1,
                         &mut block2,
-                        &mut block3,
+                        &mut block3],
                     );
                     
                     [ectr0, ectr1, ectr2, ectr3] = Self::ctr32x4_(&counter_block, &mut counter);
@@ -372,7 +373,7 @@ macro_rules! impl_block_cipher_with_gcm_mode {
                         let next_block1 = unsafe {slice_to_array_at(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN).clone()};
                         let next_block2 = unsafe {slice_to_array_at(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 2).clone()};
                         let next_block3 = unsafe {slice_to_array_at(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 3).clone()};
-                        mac.update_4block_for_aes(&block0, &block1, &block2, &block3);
+                        mac.update_4block_for_aes([&block0, &block1, &block2, &block3]);
 
                         block0 = next_block0;
                         block1 = next_block1;
@@ -380,14 +381,14 @@ macro_rules! impl_block_cipher_with_gcm_mode {
                         block3 = next_block3;
 
                         self.cipher.encrypt_4_blocks_xor(
-                            &ectr0,
+                            [&ectr0,
                             &ectr1,
                             &ectr2,
-                            &ectr3,
-                            &mut block0,
+                            &ectr3],
+                            [&mut block0,
                             &mut block1,
                             &mut block2,
-                            &mut block3,
+                            &mut block3],
                         );
 
                         [ectr0, ectr1, ectr2, ectr3] = Self::ctr32x4_(&counter_block, &mut counter);
@@ -404,7 +405,7 @@ macro_rules! impl_block_cipher_with_gcm_mode {
                     }
 
                     counter -= 4;
-                    mac.update_4block_for_aes(&block0, &block1, &block2, &block3);
+                    mac.update_4block_for_aes([&block0, &block1, &block2, &block3]);
                 }
                 
                 while plen_remain >= Self::BLOCK_LEN {
@@ -510,7 +511,7 @@ macro_rules! impl_block_cipher_with_gcm_mode {
                     let mut block2 = unsafe {slice_to_array_at(ciphertext_in_plaintext_out, start + Self::BLOCK_LEN * 2).clone()};
                     let mut block3 = unsafe {slice_to_array_at(ciphertext_in_plaintext_out, start + Self::BLOCK_LEN * 3).clone()};
 
-                    mac.update_4block_for_aes(&block0, &block1, &block2, &block3);
+                    mac.update_4block_for_aes([&block0, &block1, &block2, &block3]);
 
                     xor_si128_inplace(&mut block0, &ectr0);
                     xor_si128_inplace(&mut block1, &ectr1);
@@ -536,7 +537,7 @@ macro_rules! impl_block_cipher_with_gcm_mode {
                     let mut block2 = unsafe {slice_to_array_at(ciphertext_in_plaintext_out, start + Self::BLOCK_LEN * 2).clone()};
                     let mut block3 = unsafe {slice_to_array_at(ciphertext_in_plaintext_out, start + Self::BLOCK_LEN * 3).clone()};
 
-                    mac.update_4block_for_aes(&block0, &block1, &block2, &block3);
+                    mac.update_4block_for_aes([&block0, &block1, &block2, &block3]);
 
                     xor_si128_inplace(&mut block0, &ectr0);
                     xor_si128_inplace(&mut block1, &ectr1);
@@ -558,7 +559,7 @@ macro_rules! impl_block_cipher_with_gcm_mode {
                     let mut block6 = unsafe {slice_to_array_at(ciphertext_in_plaintext_out, start + Self::BLOCK_LEN * 6).clone()};
                     let mut block7 = unsafe {slice_to_array_at(ciphertext_in_plaintext_out, start + Self::BLOCK_LEN * 7).clone()};
 
-                    mac.update_4block_for_aes(&block4, &block5, &block6, &block7);
+                    mac.update_4block_for_aes([&block4, &block5, &block6, &block7]);
 
                     xor_si128_inplace(&mut block4, &ectr0);
                     xor_si128_inplace(&mut block5, &ectr1);
