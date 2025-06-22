@@ -117,6 +117,77 @@ macro_rules! DO_DEC_4_BLOCKS {
     };
 }
 
+macro_rules! DO_ENC_BLOCKS_XOR {
+    (4,$blocks:expr,$texts:expr,$key:expr) => {{
+        let mut block0 = unsafe { _mm_loadu_si128($blocks[0].as_ptr() as *const _) };
+        let mut block1 = unsafe { _mm_loadu_si128($blocks[1].as_ptr() as *const _) };
+        let mut block2 = unsafe { _mm_loadu_si128($blocks[2].as_ptr() as *const _) };
+        let mut block3 = unsafe { _mm_loadu_si128($blocks[3].as_ptr() as *const _) };
+
+        block0 = _mm_xor_si128(block0, $key[0]);
+        block1 = _mm_xor_si128(block1, $key[0]);
+        block2 = _mm_xor_si128(block2, $key[0]);
+        block3 = _mm_xor_si128(block3, $key[0]);
+
+        crate::const_loop!(i, 1, 9, {
+            block0 = _mm_aesenc_si128(block0, $key[i]);
+            block1 = _mm_aesenc_si128(block1, $key[i]);
+            block2 = _mm_aesenc_si128(block2, $key[i]);
+            block3 = _mm_aesenc_si128(block3, $key[i]);
+        });
+
+        block0 = _mm_aesenclast_si128(block0,  _mm_xor_si128($key[10], _mm_loadu_si128($texts[0].as_ptr() as *const _)));
+        block1 = _mm_aesenclast_si128(block1,  _mm_xor_si128($key[10], _mm_loadu_si128($texts[1].as_ptr() as *const _)));
+        block2 = _mm_aesenclast_si128(block2,  _mm_xor_si128($key[10], _mm_loadu_si128($texts[2].as_ptr() as *const _)));
+        block3 = _mm_aesenclast_si128(block3,  _mm_xor_si128($key[10], _mm_loadu_si128($texts[3].as_ptr() as *const _)));
+
+        unsafe {
+            _mm_storeu_si128($texts[0].as_mut_ptr() as *mut _, block0);
+            _mm_storeu_si128($texts[1].as_mut_ptr() as *mut _, block1);
+            _mm_storeu_si128($texts[2].as_mut_ptr() as *mut _, block2);
+            _mm_storeu_si128($texts[3].as_mut_ptr() as *mut _, block3);
+        }
+    }};
+    (6,$blocks:expr,$texts:expr,$key:expr) => {{
+        let mut block0 = unsafe { _mm_loadu_si128($blocks[0].as_ptr() as *const _) };
+        let mut block1 = unsafe { _mm_loadu_si128($blocks[1].as_ptr() as *const _) };
+        let mut block2 = unsafe { _mm_loadu_si128($blocks[2].as_ptr() as *const _) };
+        let mut block3 = unsafe { _mm_loadu_si128($blocks[3].as_ptr() as *const _) };
+        let mut block4 = unsafe { _mm_loadu_si128($blocks[4].as_ptr() as *const _) };
+        let mut block5 = unsafe { _mm_loadu_si128($blocks[5].as_ptr() as *const _) };
+
+        block0 = _mm_xor_si128(block0, $key[0]);
+        block1 = _mm_xor_si128(block1, $key[0]);
+        block2 = _mm_xor_si128(block2, $key[0]);
+        block3 = _mm_xor_si128(block3, $key[0]);
+        block4 = _mm_xor_si128(block4, $key[0]);
+        block5 = _mm_xor_si128(block5, $key[0]);
+
+        crate::const_loop!(i, 1, 9, {
+            block0 = _mm_aesenc_si128(block0, $key[i]);
+            block1 = _mm_aesenc_si128(block1, $key[i]);
+            block2 = _mm_aesenc_si128(block2, $key[i]);
+            block3 = _mm_aesenc_si128(block3, $key[i]);
+            block4 = _mm_aesenc_si128(block4, $key[i]);
+            block5 = _mm_aesenc_si128(block5, $key[i]);
+        });
+
+        block0 = _mm_aesenclast_si128(block0,  _mm_xor_si128($key[10], _mm_loadu_si128($texts[0].as_ptr() as *const _)));
+        block1 = _mm_aesenclast_si128(block1,  _mm_xor_si128($key[10], _mm_loadu_si128($texts[1].as_ptr() as *const _)));
+        block2 = _mm_aesenclast_si128(block2,  _mm_xor_si128($key[10], _mm_loadu_si128($texts[2].as_ptr() as *const _)));
+        block3 = _mm_aesenclast_si128(block3,  _mm_xor_si128($key[10], _mm_loadu_si128($texts[3].as_ptr() as *const _)));
+        block4 = _mm_aesenclast_si128(block4,  _mm_xor_si128($key[10], _mm_loadu_si128($texts[4].as_ptr() as *const _)));
+        block5 = _mm_aesenclast_si128(block5,  _mm_xor_si128($key[10], _mm_loadu_si128($texts[5].as_ptr() as *const _)));
+        unsafe {
+            _mm_storeu_si128($texts[0].as_mut_ptr() as *mut _, block0);
+            _mm_storeu_si128($texts[1].as_mut_ptr() as *mut _, block1);
+            _mm_storeu_si128($texts[2].as_mut_ptr() as *mut _, block2);
+            _mm_storeu_si128($texts[3].as_mut_ptr() as *mut _, block3);
+            _mm_storeu_si128($texts[4].as_mut_ptr() as *mut _, block4);
+            _mm_storeu_si128($texts[5].as_mut_ptr() as *mut _, block5);
+        }
+    }};
+}
 }
 
 pub(crate) use key_expansion_128;
@@ -126,6 +197,7 @@ pub(crate) use DO_ENC_BLOCK;
 pub(crate) use DO_DEC_BLOCK;
 pub(crate) use DO_ENC_4_BLOCKS;
 pub(crate) use DO_DEC_4_BLOCKS;
+pub(crate) use DO_ENC_BLOCKS_XOR;
 
 #[derive(Clone, Copy)]
 pub struct AES128 {
@@ -211,77 +283,13 @@ impl AES128 {
     }
 
     #[inline(always)]
-    pub(crate) fn encrypt_4_blocks_xor(&self, data0: &[u8; 16], data1: &[u8; 16], data2: &[u8; 16], data3: &[u8; 16], text0: &mut [u8; 16], text1: &mut [u8; 16], text2: &mut [u8; 16], text3: &mut [u8; 16]) {
-        let mut block0 = unsafe { _mm_loadu_si128(data0.as_ptr() as *const __m128i) };
-        let mut block1 = unsafe { _mm_loadu_si128(data1.as_ptr() as *const __m128i) };
-        let mut block2 = unsafe { _mm_loadu_si128(data2.as_ptr() as *const __m128i) };
-        let mut block3 = unsafe { _mm_loadu_si128(data3.as_ptr() as *const __m128i) };
-
-        block0 = _mm_xor_si128(block0, self.key_schedule[0]);
-        block1 = _mm_xor_si128(block1, self.key_schedule[0]);
-        block2 = _mm_xor_si128(block2, self.key_schedule[0]);
-        block3 = _mm_xor_si128(block3, self.key_schedule[0]);
-
-        crate::const_loop!(i, 1, 9, {
-            block0 = _mm_aesenc_si128(block0, self.key_schedule[i]);
-            block1 = _mm_aesenc_si128(block1, self.key_schedule[i]);
-            block2 = _mm_aesenc_si128(block2, self.key_schedule[i]);
-            block3 = _mm_aesenc_si128(block3, self.key_schedule[i]);
-        });
-
-        block0 = _mm_aesenclast_si128(block0,  _mm_xor_si128(self.key_schedule[10], _mm_loadu_si128(text0.as_ptr() as *const __m128i)));
-        block1 = _mm_aesenclast_si128(block1,  _mm_xor_si128(self.key_schedule[10], _mm_loadu_si128(text1.as_ptr() as *const __m128i)));
-        block2 = _mm_aesenclast_si128(block2,  _mm_xor_si128(self.key_schedule[10], _mm_loadu_si128(text2.as_ptr() as *const __m128i)));
-        block3 = _mm_aesenclast_si128(block3,  _mm_xor_si128(self.key_schedule[10], _mm_loadu_si128(text3.as_ptr() as *const __m128i)));
-
-        unsafe {
-            _mm_storeu_si128(text0.as_mut_ptr() as *mut __m128i, block0);
-            _mm_storeu_si128(text1.as_mut_ptr() as *mut __m128i, block1);
-            _mm_storeu_si128(text2.as_mut_ptr() as *mut __m128i, block2);
-            _mm_storeu_si128(text3.as_mut_ptr() as *mut __m128i, block3);
-        }
+    pub(crate) fn encrypt_4_blocks_xor(&self, data: [&[u8; 16]; 4], text: [&mut [u8; 16]; 4]) {
+        DO_ENC_BLOCKS_XOR!(4, data, text, self.key_schedule);
     }
 
     #[inline(always)]
-    pub(crate) fn encrypt_6_blocks_xor(&self, data0: &[u8; 16], data1: &[u8; 16], data2: &[u8; 16], data3: &[u8; 16], data4: &[u8; 16], data5: &[u8; 16], text0: &mut [u8; 16], text1: &mut [u8; 16], text2: &mut [u8; 16], text3: &mut [u8; 16], text4: &mut [u8; 16], text5: &mut [u8; 16]) {
-        let mut block0 = unsafe { _mm_loadu_si128(data0.as_ptr() as *const __m128i) };
-        let mut block1 = unsafe { _mm_loadu_si128(data1.as_ptr() as *const __m128i) };
-        let mut block2 = unsafe { _mm_loadu_si128(data2.as_ptr() as *const __m128i) };
-        let mut block3 = unsafe { _mm_loadu_si128(data3.as_ptr() as *const __m128i) };
-        let mut block4 = unsafe { _mm_loadu_si128(data4.as_ptr() as *const __m128i) };
-        let mut block5 = unsafe { _mm_loadu_si128(data5.as_ptr() as *const __m128i) };
-
-        block0 = _mm_xor_si128(block0, self.key_schedule[0]);
-        block1 = _mm_xor_si128(block1, self.key_schedule[0]);
-        block2 = _mm_xor_si128(block2, self.key_schedule[0]);
-        block3 = _mm_xor_si128(block3, self.key_schedule[0]);
-        block4 = _mm_xor_si128(block4, self.key_schedule[0]);
-        block5 = _mm_xor_si128(block5, self.key_schedule[0]);
-
-        crate::const_loop!(i, 1, 9, {
-            block0 = _mm_aesenc_si128(block0, self.key_schedule[i]);
-            block1 = _mm_aesenc_si128(block1, self.key_schedule[i]);
-            block2 = _mm_aesenc_si128(block2, self.key_schedule[i]);
-            block3 = _mm_aesenc_si128(block3, self.key_schedule[i]);
-            block4 = _mm_aesenc_si128(block4, self.key_schedule[i]);
-            block5 = _mm_aesenc_si128(block5, self.key_schedule[i]);
-        });
-
-        block0 = _mm_aesenclast_si128(block0,  _mm_xor_si128(self.key_schedule[10], _mm_loadu_si128(text0.as_ptr() as *const __m128i)));
-        block1 = _mm_aesenclast_si128(block1,  _mm_xor_si128(self.key_schedule[10], _mm_loadu_si128(text1.as_ptr() as *const __m128i)));
-        block2 = _mm_aesenclast_si128(block2,  _mm_xor_si128(self.key_schedule[10], _mm_loadu_si128(text2.as_ptr() as *const __m128i)));
-        block3 = _mm_aesenclast_si128(block3,  _mm_xor_si128(self.key_schedule[10], _mm_loadu_si128(text3.as_ptr() as *const __m128i)));
-        block4 = _mm_aesenclast_si128(block4,  _mm_xor_si128(self.key_schedule[10], _mm_loadu_si128(text4.as_ptr() as *const __m128i)));
-        block5 = _mm_aesenclast_si128(block5,  _mm_xor_si128(self.key_schedule[10], _mm_loadu_si128(text5.as_ptr() as *const __m128i)));
-
-        unsafe {
-            _mm_storeu_si128(text0.as_mut_ptr() as *mut __m128i, block0);
-            _mm_storeu_si128(text1.as_mut_ptr() as *mut __m128i, block1);
-            _mm_storeu_si128(text2.as_mut_ptr() as *mut __m128i, block2);
-            _mm_storeu_si128(text3.as_mut_ptr() as *mut __m128i, block3);
-            _mm_storeu_si128(text4.as_mut_ptr() as *mut __m128i, block4);
-            _mm_storeu_si128(text5.as_mut_ptr() as *mut __m128i, block5);
-        }
+    pub(crate) fn encrypt_6_blocks_xor(&self, data: [&[u8; 16]; 6], text: [&mut [u8; 16]; 6]) {
+        DO_ENC_BLOCKS_XOR!(6, data, text, self.key_schedule);
     }
 
     #[inline(always)]
@@ -306,13 +314,13 @@ impl AES128 {
         let mut chunks = data.chunks_exact_mut(16 * 4);
         for chunk in &mut chunks {
             let block0 = unsafe { crate::utils::slice_to_array_at_mut(chunk, 0) };
-            let block0 = unsafe { std::mem::transmute::<&mut [u8; 16], _>(block0) };
+            let block0 = unsafe { core::mem::transmute::<&mut [u8; 16], _>(block0) };
             let block1 = unsafe { crate::utils::slice_to_array_at_mut(chunk, 1) };
-            let block1 = unsafe { std::mem::transmute::<&mut [u8; 16], _>(block1) };
+            let block1 = unsafe { core::mem::transmute::<&mut [u8; 16], _>(block1) };
             let block2 = unsafe { crate::utils::slice_to_array_at_mut(chunk, 2) };
-            let block2 = unsafe { std::mem::transmute::<&mut [u8; 16], _>(block2) };
+            let block2 = unsafe { core::mem::transmute::<&mut [u8; 16], _>(block2) };
             let block3 = unsafe { crate::utils::slice_to_array_at_mut(chunk, 3) };
-            let block3 = unsafe { std::mem::transmute::<&mut [u8; 16], _>(block3) };
+            let block3 = unsafe { core::mem::transmute::<&mut [u8; 16], _>(block3) };
 
             self.encrypt_4_blocks(block0, block1, block2, block3);
         }
@@ -330,13 +338,13 @@ impl AES128 {
         let mut chunks = data.chunks_exact_mut(16 * 4);
         for chunk in &mut chunks {
             let block0 = unsafe { crate::utils::slice_to_array_at_mut(chunk, 0) };
-            let block0 = unsafe { std::mem::transmute::<&mut [u8; 16], _>(block0) };
+            let block0 = unsafe { core::mem::transmute::<&mut [u8; 16], _>(block0) };
             let block1 = unsafe { crate::utils::slice_to_array_at_mut(chunk, 1) };
-            let block1 = unsafe { std::mem::transmute::<&mut [u8; 16], _>(block1) };
+            let block1 = unsafe { core::mem::transmute::<&mut [u8; 16], _>(block1) };
             let block2 = unsafe { crate::utils::slice_to_array_at_mut(chunk, 2) };
-            let block2 = unsafe { std::mem::transmute::<&mut [u8; 16], _>(block2) };
+            let block2 = unsafe { core::mem::transmute::<&mut [u8; 16], _>(block2) };
             let block3 = unsafe { crate::utils::slice_to_array_at_mut(chunk, 3) };
-            let block3 = unsafe { std::mem::transmute::<&mut [u8; 16], _>(block3) };
+            let block3 = unsafe { core::mem::transmute::<&mut [u8; 16], _>(block3) };
 
             self.decrypt_4_blocks(block0, block1, block2, block3);
         }
@@ -355,6 +363,9 @@ mod tests {
 
     #[test]
     fn test_aes128() {
+        if !crate::is_hw_feature_detected!("sse2", "aes") {
+            return;
+        }
         let key = [0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c];
         let cipher = AES128::new(key);
 

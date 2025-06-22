@@ -43,7 +43,7 @@ fn sub_word(x: u32) -> u32 {
 #[cfg_attr(target_arch = "arm", unsafe_target_feature("v8,neon,aes"))]
 #[inline(always)]
 fn load_key_128(k: &mut [uint8x16_t; 20], key: &[u8; 16]) {
-    use std::mem::transmute;
+    use core::mem::transmute;
     unsafe {
         let mut ek: [u32; 44] = [0u32; 44];
 
@@ -217,11 +217,11 @@ impl AES128 {
     }*/
     
     #[inline(always)]
-    pub(crate) fn encrypt_4_blocks_xor(&self, data0: &[u8; 16], data1: &[u8; 16], data2: &[u8; 16], data3: &[u8; 16], text0: &mut [u8; 16], text1: &mut [u8; 16], text2: &mut [u8; 16], text3: &mut [u8; 16]) {
-        let mut block0 = unsafe { vld1q_u8(data0.as_ptr()) };
-        let mut block1 = unsafe { vld1q_u8(data1.as_ptr()) };
-        let mut block2 = unsafe { vld1q_u8(data2.as_ptr()) };
-        let mut block3 = unsafe { vld1q_u8(data3.as_ptr()) };
+    pub(crate) fn encrypt_4_blocks_xor(&self, data: [&[u8; 16]; 4], text: [&mut [u8; 16]; 4]) {
+        let mut block0 = unsafe { vld1q_u8(data[0].as_ptr()) };
+        let mut block1 = unsafe { vld1q_u8(data[1].as_ptr()) };
+        let mut block2 = unsafe { vld1q_u8(data[2].as_ptr()) };
+        let mut block3 = unsafe { vld1q_u8(data[3].as_ptr()) };
 
         unsafe {
             crate::const_loop!(i, 0, 9, {
@@ -236,26 +236,26 @@ impl AES128 {
             block2 = vaeseq_u8(block2, self.key_schedule[9]);
             block3 = vaeseq_u8(block3, self.key_schedule[9]);
 
-            block0 = veorq_u8(block0, veorq_u8(self.key_schedule[10], vld1q_u8(text0.as_ptr())));
-            block1 = veorq_u8(block1, veorq_u8(self.key_schedule[10], vld1q_u8(text1.as_ptr())));
-            block2 = veorq_u8(block2, veorq_u8(self.key_schedule[10], vld1q_u8(text2.as_ptr())));
-            block3 = veorq_u8(block3, veorq_u8(self.key_schedule[10], vld1q_u8(text3.as_ptr())));
+            block0 = veorq_u8(block0, veorq_u8(self.key_schedule[10], vld1q_u8(text[0].as_ptr())));
+            block1 = veorq_u8(block1, veorq_u8(self.key_schedule[10], vld1q_u8(text[1].as_ptr())));
+            block2 = veorq_u8(block2, veorq_u8(self.key_schedule[10], vld1q_u8(text[2].as_ptr())));
+            block3 = veorq_u8(block3, veorq_u8(self.key_schedule[10], vld1q_u8(text[3].as_ptr())));
 
-            vst1q_u8(text0.as_mut_ptr(), block0);
-            vst1q_u8(text1.as_mut_ptr(), block1);
-            vst1q_u8(text2.as_mut_ptr(), block2);
-            vst1q_u8(text3.as_mut_ptr(), block3);
+            vst1q_u8(text[0].as_mut_ptr(), block0);
+            vst1q_u8(text[1].as_mut_ptr(), block1);
+            vst1q_u8(text[2].as_mut_ptr(), block2);
+            vst1q_u8(text[3].as_mut_ptr(), block3);
         }
     }
 
     #[inline(always)]
-    pub(crate) fn encrypt_6_blocks_xor(&self, data0: &[u8; 16], data1: &[u8; 16], data2: &[u8; 16], data3: &[u8; 16], data4: &[u8; 16], data5: &[u8; 16], text0: &mut [u8; 16], text1: &mut [u8; 16], text2: &mut [u8; 16], text3: &mut [u8; 16], text4: &mut [u8; 16], text5: &mut [u8; 16]) {
-        let mut block0 = unsafe { vld1q_u8(data0.as_ptr()) };
-        let mut block1 = unsafe { vld1q_u8(data1.as_ptr()) };
-        let mut block2 = unsafe { vld1q_u8(data2.as_ptr()) };
-        let mut block3 = unsafe { vld1q_u8(data3.as_ptr()) };
-        let mut block4 = unsafe { vld1q_u8(data4.as_ptr()) };
-        let mut block5 = unsafe { vld1q_u8(data5.as_ptr()) };
+    pub(crate) fn encrypt_6_blocks_xor(&self, data: [&[u8; 16]; 6], text: [&mut [u8; 16]; 6]) {
+        let mut block0 = unsafe { vld1q_u8(data[0].as_ptr()) };
+        let mut block1 = unsafe { vld1q_u8(data[1].as_ptr()) };
+        let mut block2 = unsafe { vld1q_u8(data[2].as_ptr()) };
+        let mut block3 = unsafe { vld1q_u8(data[3].as_ptr()) };
+        let mut block4 = unsafe { vld1q_u8(data[4].as_ptr()) };
+        let mut block5 = unsafe { vld1q_u8(data[5].as_ptr()) };
 
         unsafe {
             crate::const_loop!(i, 0, 9, {
@@ -274,19 +274,19 @@ impl AES128 {
             block4 = vaeseq_u8(block4, self.key_schedule[9]);
             block5 = vaeseq_u8(block5, self.key_schedule[9]);
 
-            block0 = veorq_u8(block0, veorq_u8(self.key_schedule[10], vld1q_u8(text0.as_ptr())));
-            block1 = veorq_u8(block1, veorq_u8(self.key_schedule[10], vld1q_u8(text1.as_ptr())));
-            block2 = veorq_u8(block2, veorq_u8(self.key_schedule[10], vld1q_u8(text2.as_ptr())));
-            block3 = veorq_u8(block3, veorq_u8(self.key_schedule[10], vld1q_u8(text3.as_ptr())));
-            block4 = veorq_u8(block4, veorq_u8(self.key_schedule[10], vld1q_u8(text4.as_ptr())));
-            block5 = veorq_u8(block5, veorq_u8(self.key_schedule[10], vld1q_u8(text5.as_ptr())));
+            block0 = veorq_u8(block0, veorq_u8(self.key_schedule[10], vld1q_u8(text[0].as_ptr())));
+            block1 = veorq_u8(block1, veorq_u8(self.key_schedule[10], vld1q_u8(text[1].as_ptr())));
+            block2 = veorq_u8(block2, veorq_u8(self.key_schedule[10], vld1q_u8(text[2].as_ptr())));
+            block3 = veorq_u8(block3, veorq_u8(self.key_schedule[10], vld1q_u8(text[3].as_ptr())));
+            block4 = veorq_u8(block4, veorq_u8(self.key_schedule[10], vld1q_u8(text[4].as_ptr())));
+            block5 = veorq_u8(block5, veorq_u8(self.key_schedule[10], vld1q_u8(text[5].as_ptr())));
 
-            vst1q_u8(text0.as_mut_ptr(), block0);
-            vst1q_u8(text1.as_mut_ptr(), block1);
-            vst1q_u8(text2.as_mut_ptr(), block2);
-            vst1q_u8(text3.as_mut_ptr(), block3);
-            vst1q_u8(text4.as_mut_ptr(), block4);
-            vst1q_u8(text5.as_mut_ptr(), block5);
+            vst1q_u8(text[0].as_mut_ptr(), block0);
+            vst1q_u8(text[1].as_mut_ptr(), block1);
+            vst1q_u8(text[2].as_mut_ptr(), block2);
+            vst1q_u8(text[3].as_mut_ptr(), block3);
+            vst1q_u8(text[4].as_mut_ptr(), block4);
+            vst1q_u8(text[5].as_mut_ptr(), block5);
         }
     }
 
@@ -372,13 +372,13 @@ impl AES128 {
         let mut chunks = data.chunks_exact_mut(16 * 4);
         for chunk in &mut chunks {
             let block0 = unsafe { crate::utils::slice_to_array_at_mut(chunk, 0) };
-            let block0 = unsafe { std::mem::transmute::<&mut [u8; 16], _>(block0) };
+            let block0 = unsafe { core::mem::transmute::<&mut [u8; 16], _>(block0) };
             let block1 = unsafe { crate::utils::slice_to_array_at_mut(chunk, 1) };
-            let block1 = unsafe { std::mem::transmute::<&mut [u8; 16], _>(block1) };
+            let block1 = unsafe { core::mem::transmute::<&mut [u8; 16], _>(block1) };
             let block2 = unsafe { crate::utils::slice_to_array_at_mut(chunk, 2) };
-            let block2 = unsafe { std::mem::transmute::<&mut [u8; 16], _>(block2) };
+            let block2 = unsafe { core::mem::transmute::<&mut [u8; 16], _>(block2) };
             let block3 = unsafe { crate::utils::slice_to_array_at_mut(chunk, 3) };
-            let block3 = unsafe { std::mem::transmute::<&mut [u8; 16], _>(block3) };
+            let block3 = unsafe { core::mem::transmute::<&mut [u8; 16], _>(block3) };
 
             self.decrypt_4_blocks(block0, block1, block2, block3);
         }
@@ -395,13 +395,13 @@ impl AES128 {
         let mut chunks = data.chunks_exact_mut(16 * 4);
         for chunk in &mut chunks {
             let block0 = unsafe { crate::utils::slice_to_array_at_mut(chunk, 0) };
-            let block0 = unsafe { std::mem::transmute::<&mut [u8; 16], _>(block0) };
+            let block0 = unsafe { core::mem::transmute::<&mut [u8; 16], _>(block0) };
             let block1 = unsafe { crate::utils::slice_to_array_at_mut(chunk, 1) };
-            let block1 = unsafe { std::mem::transmute::<&mut [u8; 16], _>(block1) };
+            let block1 = unsafe { core::mem::transmute::<&mut [u8; 16], _>(block1) };
             let block2 = unsafe { crate::utils::slice_to_array_at_mut(chunk, 2) };
-            let block2 = unsafe { std::mem::transmute::<&mut [u8; 16], _>(block2) };
+            let block2 = unsafe { core::mem::transmute::<&mut [u8; 16], _>(block2) };
             let block3 = unsafe { crate::utils::slice_to_array_at_mut(chunk, 3) };
-            let block3 = unsafe { std::mem::transmute::<&mut [u8; 16], _>(block3) };
+            let block3 = unsafe { core::mem::transmute::<&mut [u8; 16], _>(block3) };
 
             self.encrypt_4_blocks(block0, block1, block2, block3);
         }
