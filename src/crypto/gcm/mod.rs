@@ -523,6 +523,8 @@ macro_rules! impl_block_cipher_with_gcm_mode {
                         *slice_to_array_at_mut(ciphertext_in_plaintext_out, start + Self::BLOCK_LEN * 2) = block2;
                         *slice_to_array_at_mut(ciphertext_in_plaintext_out, start + Self::BLOCK_LEN * 3) = block3;
                     }
+                    start += Self::BLOCK_LEN * 4;
+                    clen_remain -= Self::BLOCK_LEN * 4;
                 }
 
                 while !IS_SOFT && clen_remain >= Self::BLOCK_LEN * 8 {
@@ -834,26 +836,24 @@ impl AES128GcmDynamic {
     }
 }
 
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_aes128_gcm() {
+    macro_rules! test_aes128_gcm_impl {
+        ($cipher_type:ty) => {{
         let key = [
             0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf,
             0x4f, 0x3c,
         ];
-        let cipher = AES128Gcm::from_slice(&key);
+        let cipher = <$cipher_type>::from_slice(&key);
         let nonce = [0x00; NONCE_LEN];
 
         let aad = &[0u8; 20];
         let plaintext = b"Hello, world!";
         let text = plaintext.to_vec();
-        let mut ciphertext = Vec::new();
-        for _ in 0..1000 {
-            ciphertext.append(text.clone().as_mut());
-        }
+        let mut ciphertext = text.repeat(1000);
         let ciphertext_orig = ciphertext.clone();
         // use detatched mode
         let mut tag = [0u8; 16];
@@ -871,48 +871,33 @@ mod tests {
         let ret = cipher.decrypt_slice_detached(&nonce, aad, &mut ciphertext, &tag);
         assert!(ret);
         assert_eq!(&ciphertext_orig, &ciphertext[..]);
+
+        }};
     }
 
-    // test AES128Gcm with ring aes128gcm
     #[test]
-    fn test_aes128_gcm_ring() {
-        use ring::aead::{self, AES_128_GCM};
-
-        let key = [
-            0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf,
-            0x4f, 0x3c,
-        ];
-        let nonce = [0x00; NONCE_LEN];
-        let aad = &[0u8; 20];
-        let plaintext = b"Hello, world!";
-        let mut ciphertext = plaintext.to_vec();
-        let mut tag = [0u8; 16];
-
-        let cipher = AES128Gcm::from_slice(&key);
-        cipher.encrypt_slice_detached(&nonce, aad, &mut ciphertext, &mut tag);
-
-        let mut ciphertext_ring = plaintext.to_vec();
-        let key = aead::LessSafeKey::new(aead::UnboundKey::new(&AES_128_GCM, &key).unwrap());
-        let aad_ring = aead::Aad::from(aad);
-        let nonce_ring = aead::Nonce::try_assume_unique_for_key(&nonce).unwrap();
-        let ret = key.seal_in_place_separate_tag(nonce_ring, aad_ring, &mut ciphertext_ring);
-        assert!(ret.is_ok());
-        assert_eq!(ciphertext, ciphertext_ring);
-        assert_eq!(tag, ret.unwrap().as_ref());
-
-        let ret = cipher.decrypt_slice_detached(&nonce, aad, &mut ciphertext, &tag);
-        assert!(ret);
-        assert_eq!(plaintext, &ciphertext[..]);
-
-        // encrypt again
-        let mut ciphertext = plaintext.to_vec();
-        cipher.encrypt_slice_detached(&nonce, aad, &mut ciphertext, &mut tag);
-
-        let mut ciphertext_ring = plaintext.to_vec();
-        let nonce_ring = aead::Nonce::try_assume_unique_for_key(&nonce).unwrap();
-        let ret = key.seal_in_place_separate_tag(nonce_ring, aad_ring, &mut ciphertext_ring);
-        assert!(ret.is_ok());
-        assert_eq!(ciphertext, ciphertext_ring);
-        assert_eq!(tag, ret.unwrap().as_ref());
+    fn test_aes128_gcm() {
+        test_aes128_gcm_impl!(AES128GcmSoft);
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        if crate::is_hw_feature_detected!("sse2", "ssse3", "aes", "pclmulqdq") {
+            test_aes128_gcm_impl!(AES128GcmSSE);
+        }
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        if crate::is_hw_feature_detected!("avx", "aes", "pclmulqdq") {
+            test_aes128_gcm_impl!(AES128GcmAVX);
+        }
+        #[cfg(target_arch = "aarch64")]
+        if crate::is_hw_feature_detected!("aes", "neon") {
+            test_aes128_gcm_impl!(AES128GcmHW);
+        }
+        #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
+        if crate::is_hw_feature_detected!("neon") {
+            test_aes128_gcm_impl!(AES128GcmNEON);
+        }
+        #[cfg(target_arch = "arm")]
+        if crate::is_hw_feature_detected!("v8", "aes", "neon") {
+            test_aes128_gcm_impl!(AES128GcmHW);
+        }
+        test_aes128_gcm_impl!(AES128GcmDynamic);
     }
 }
