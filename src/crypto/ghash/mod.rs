@@ -5,6 +5,9 @@ pub mod dynamic;
 pub mod x86;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub mod x86_avx;
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(avx512_feature)]
+pub mod x86_avx512;
 #[cfg(target_arch = "aarch64")]
 pub mod aarch64;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]

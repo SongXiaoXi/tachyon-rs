@@ -73,19 +73,6 @@ impl GHash {
         }
     }
     #[inline(always)]
-    pub(crate) fn update_4block_for_aes(&mut self, m0: &[u8; 16], m1: &[u8; 16], m2: &[u8; 16], m3: &[u8; 16]) {
-        unsafe {
-            match IDX {
-                0 => self.soft.update_4block_for_aes(m0, m1, m2, m3),
-                #[cfg(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64"))]
-                1 => self.hw.update_4block_for_aes(m0, m1, m2, m3),
-                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-                2 => self.avx.update_4block_for_aes(m0, m1, m2, m3),
-                _ => unreachable!(),
-            }
-        }
-    }
-    #[inline(always)]
     pub fn finalize(self) -> [u8; 16] {
         unsafe {
             match IDX {

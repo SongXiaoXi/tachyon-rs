@@ -6,6 +6,9 @@ use core::arch::x86_64::*;
 #[macro_use]
 mod macros {
 
+/// Macro to perform Galois Field multiplication using PCLMULQDQ instruction
+/// This macro takes two `__m128i` values and returns their product in Galois Field (GF(2^128)).
+/// Safety: This macro assumes that target_feature `pclmulqdq` and `sse2` are enabled.
 #[allow(unused_macros)]
 macro_rules! gf_mul {
     ($a:expr, $b:expr) => {
@@ -213,7 +216,7 @@ impl GHash {
 
         let mut start = 0;
         while mlen >= Self::BLOCK_LEN {
-            self.gf_mul_buf(_mm_loadu_si128(&m[start] as *const u8 as *const _));
+            self.gf_mul_buf(_mm_loadu_si128(m.as_ptr().add(start) as _));
             mlen -= Self::BLOCK_LEN;
             start += Self::BLOCK_LEN;
         }
@@ -319,6 +322,8 @@ pub(crate) use gf_mul_no_reduce;
 pub(crate) use gf_mul_reduce;
 pub(crate) use fold_key;
 pub(crate) use x86_ghash_128_impl;
+#[allow(unused_imports)]
+pub(crate) use gf_mul;
 
 #[inline(always)]
 pub(crate) unsafe fn gf_mul2(a: __m128i, b: __m128i) -> __m128i {
@@ -336,5 +341,25 @@ mod tests {
             return;
         }
         ghash_test_case!();
+    }
+
+    #[test]
+    fn test_clmul() {
+        if !crate::is_hw_feature_detected!("pclmulqdq", "sse2") {
+            return;
+        }
+        let a = [0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6];
+        let b = [0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c];
+        unsafe {
+            let a = _mm_loadu_si128(a.as_ptr() as *const _);
+            let b = _mm_loadu_si128(b.as_ptr() as *const _);
+            let res = gf_mul2(gf_mul_prepare_k!(a), b);
+            let expected = gf_mul!(a, b);
+            let mut res_arr = [0u8; 16];
+            _mm_storeu_si128(res_arr.as_mut_ptr() as *mut _, res);
+            let mut expected_arr = [0u8; 16];
+            _mm_storeu_si128(expected_arr.as_mut_ptr() as *mut _, expected);
+            assert_eq!(res_arr, expected_arr);
+        }
     }
 }
