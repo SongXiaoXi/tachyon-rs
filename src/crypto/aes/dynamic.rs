@@ -23,7 +23,6 @@ static mut IDX: u32 = u32::MAX; // 0: soft, 1: x86/arm aes-ni, 2: sse
 impl AES128 {
     pub const BLOCK_LEN: usize = 16;
     pub const KEY_LEN: usize = 16;
-    pub(crate) const IS_SOFT: bool = true;
     #[inline(always)]
     pub fn new(key: [u8; 16]) -> Self {
         unsafe {
