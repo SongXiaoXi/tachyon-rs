@@ -73,11 +73,11 @@ unsafe fn gf_mul_prepare_k(key: uint8x16_t) -> uint8x16_t {
     let t0_lo = vshr_n_u64(vreinterpret_u64_u8(t0), 63);
     let t0 = vcombine_u8(vreinterpret_u8_u64(t0_lo), vreinterpret_u8_u64(t0_hi));
     let t1 = vdupq_laneq_u8(key, 15);
-    let t2 = vshr_n_u64(vreinterpret_u64_u8(vget_low_u8(key)), 63);
+    let t2 = vcombine_u64(vdup_n_u64(0), vshr_n_u64(vreinterpret_u64_u8(vget_low_u8(key)), 63));
     let t1 = vreinterpretq_u8_s8(vshrq_n_s8(vreinterpretq_s8_u8(t1), 7));
     let r = vreinterpretq_u8_u64(vshlq_n_u64(vreinterpretq_u64_u8(key), 1));
     let t0 = vandq_u8(t0, t1);
-    let r = vorrq_u8(r, vreinterpretq_u8_u64(vcombine_u64(vdup_n_u64(0), t2)));
+    let r = vorrq_u8(r, vreinterpretq_u8_u64(t2));
     let r = veorq_u8(r, t0);
     r
 }

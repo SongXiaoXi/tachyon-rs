@@ -140,6 +140,29 @@ macro_rules! gf_mul_reduce {
     };
 }
 
+/*
+macro_rules! gf_mul_reduce {
+    ($a:expr) => {{
+        let (mut r0, mut r1, r2) = $a;
+        r1 = _mm_xor_si128(r0, _mm_xor_si128(r1, r2));
+
+        let poly = _mm_set1_epi64x(0xc200000000000000u64 as i64);
+        let tmp0 = _mm_xor_si128(_mm_clmulepi64_si128(r0, poly, 0x00), r1);
+
+        r0 = _mm_xor_si128(r0, _mm_shuffle_epi32(tmp0, crate::_MM_SHUFFLE(1, 0, 3, 2)));
+        let tmp1 = _mm_clmulepi64_si128(r0, poly, 0x11);
+        
+        _mm_xor_si128(
+            _mm_xor_si128(
+                r0,
+                r2,
+            ),
+            tmp1,
+        )
+    }};
+}
+*/
+
 macro_rules! x86_ghash_128_impl {
     ($($feature:literal)?) => {
 #[derive(Clone, Copy)]

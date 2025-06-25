@@ -2,7 +2,6 @@
 use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
-use unsafe_target_feature::unsafe_target_feature;
 
 #[allow(unused_imports)]
 use super::x86::gf_mul;
@@ -16,21 +15,40 @@ pub struct GHash {
 
 use super::x86::gf_mul_prepare_k;
 use super::x86::gf_mul_no_reduce;
-use super::x86::gf_mul_reduce;
 use super::x86::fold_key;
 
 /// Horizontal XOR for 4x128-bit vectors
+#[inline(always)]
 pub(crate) unsafe fn _mm512_hxori128x4_epi128(a: __m512i) -> __m128i {
-    let tmp = _mm512_extracti64x4_epi64(a, 1);
-    let a = _mm256_xor_si256(_mm512_castsi512_si256(a), tmp);
-    let tmp = _mm256_extracti32x4_epi32(a, 1);
-    _mm_xor_si128(_mm256_castsi256_si128(a), tmp)
+    
+    // let tmp = _mm512_extracti64x4_epi64(a, 1);
+    // let a = _mm256_xor_si256(_mm512_castsi512_si256(a), tmp);
+    // let tmp = _mm256_extracti32x4_epi32(a, 1);
+    // _mm_xor_si128(_mm256_castsi256_si128(a), tmp)
+    
+    let a0 = _mm512_castsi512_si128(a);
+    let a1 = _mm512_extracti32x4_epi32(a, 1);
+    let a2 = _mm512_extracti32x4_epi32(a, 2);
+    let a3 = _mm512_extracti32x4_epi32(a, 3);
+
+    _mm_xor3_si128(
+        _mm_xor_si128(a0, a1),
+        a2,
+        a3,
+    )
 }
 
+#[inline(always)]
 pub(crate) unsafe fn _mm512_xor3_si512(a: __m512i, b: __m512i, c: __m512i) -> __m512i {
     _mm512_ternarylogic_epi64(a, b, c, 0x96) // 3-way xor
 }
 
+#[inline(always)]
+pub(crate) unsafe fn _mm_xor3_si128(a: __m128i, b: __m128i, c: __m128i) -> __m128i {
+    _mm_ternarylogic_epi64(a, b, c, 0x96) // 3-way xor
+}
+
+#[inline(always)]
 pub(crate) unsafe fn _mm512_or3_si512(a: __m512i, b: __m512i, c: __m512i) -> __m512i {
     _mm512_ternarylogic_epi64(a, b, c, 0xfe) // 3-way or
 }
@@ -97,6 +115,30 @@ macro_rules! fold_key_x4 {
     }
 }
 
+macro_rules! gf_mul_reduce {
+    ($a:expr) => {{
+        let (mut r0, mut r1, r2) = $a;
+
+        r1 = _mm_xor3_si128(r0, r1, r2);
+
+        r0 = _mm_xor_si128(r0, _mm_slli_si128(r1, 8));
+
+        let tmp = _mm_xor3_si128(_mm_slli_epi64(r0, 57), _mm_slli_epi64(r0, 62), _mm_slli_epi64(r0, 63));
+
+        r0 = _mm_xor_si128(r0, _mm_slli_si128(tmp, 8));
+
+        _mm_xor3_si128(
+            _mm_xor3_si128(
+                r0,
+                _mm_srli_epi64(r0, 1),
+                _mm_srli_epi64(r0, 2),
+            ),
+            _mm_xor3_si128(_mm_srli_si128(r1, 8), r2, _mm_srli_si128(tmp, 8)),
+            _mm_srli_epi64(r0, 7),
+        )
+    }};
+}
+
 macro_rules! gf_mul_no_reduce_x4 {
     ($a:expr,$b:expr,$fold_a:expr) => {
         {
@@ -113,6 +155,87 @@ macro_rules! gf_mul_no_reduce_x4 {
     };
 }
 
+// #[allow(unused_macros)]
+// macro_rules! gf_mul_reduce_x4 {
+//     ($a:expr) => {{
+//         let (mut r0, mut r1, r2) = $a;
+
+//         r1 = _mm512_xor3_si512(r0, r1, r2);
+
+//         r0 = _mm512_xor_si512(r0, _mm512_bslli_epi128(r1, 8));
+
+//         let tmp = _mm512_xor3_si512(_mm512_slli_epi64(r0, 57), _mm512_slli_epi64(r0, 62), _mm512_slli_epi64(r0, 63));
+
+//         r0 = _mm512_xor_si512(r0, _mm512_bslli_epi128(tmp, 8));
+
+//         _mm512_xor3_si512(
+//             _mm512_xor3_si512(
+//                 r2,
+//                 _mm512_bsrli_epi128(r1, 8),
+//                 _mm512_bsrli_epi128(tmp, 8)
+//             ),
+//             _mm512_xor3_si512(
+//                 r0,
+//                 _mm512_srli_epi64(r0, 1),
+//                 _mm512_srli_epi64(r0, 2),
+//             ),
+//             _mm512_srli_epi64(r0, 7),
+//         )
+//     }};
+// }
+
+#[allow(unused_macros)]
+macro_rules! gf_mul_reduce_x4 {
+    ($a:expr) => {{
+        /*
+        // begin of a work basic version
+        let (mut r0, mut r1, mut r2) = $a;
+        r1 = _mm512_xor3_si512(r0, r1, r2);
+
+        r2 = _mm512_xor_si512(r2, _mm512_bsrli_epi128(r1, 8));
+
+        let mask = _mm512_broadcast_i32x4(_mm_set_epi32(0xffffffffu32 as i32, 0xffffffffu32 as i32, 0, 0));
+
+        let poly = _mm512_set1_epi64(0xc200000000000000u64 as i64);
+        let tmp0 = _mm512_clmulepi64_epi128(r0, poly, 0x00); // (a0 >> 1 ^ a0 >> 2 ^ a0 >> 7, a0 << 57, a0 << 62, a0 << 63)
+
+        r0 = _mm512_xor_si512(r0, _mm512_bslli_epi128(r1, 8));
+        let tmp1 = _mm512_clmulepi64_epi128(r0, poly, 0x11); // (a1 >> 1 ^ a1 >> 2 ^ a1 >> 7, a1 << 57, a1 << 62, a1 << 63)
+        
+        _mm512_xor_si512(
+            _mm512_xor_si512(
+                _mm512_xor3_si512(
+                    r0,
+                    r2,
+                    tmp1,
+                ),
+                _mm512_shuffle_epi32(tmp0, crate::_MM_SHUFFLE(1, 0, 3, 2)),
+            ),
+            _mm512_and_si512(
+                mask,
+                _mm512_clmulepi64_epi128(tmp0, poly, 0x00),
+            )
+        )
+        // end of a work basic version
+        */
+
+        let (mut r0, mut r1, r2) = $a;
+        r1 = _mm512_xor3_si512(r0, r1, r2);
+
+        let poly = _mm512_set1_epi64(0xc200000000000000u64 as i64);
+        let tmp0 = _mm512_xor_si512(_mm512_clmulepi64_epi128(r0, poly, 0x00), r1);
+
+        r0 = _mm512_xor_si512(r0, _mm512_shuffle_epi32(tmp0, crate::_MM_SHUFFLE(1, 0, 3, 2)));
+        let tmp1 = _mm512_clmulepi64_epi128(r0, poly, 0x11);
+        
+        _mm512_xor3_si512(
+            r0,
+            r2,
+            tmp1,
+        )
+    }};
+}
+
 }
 
 #[inline(always)]
@@ -120,7 +243,7 @@ unsafe fn gf_mul2(a: __m128i, b: __m128i) -> __m128i {
     gf_mul_reduce!(gf_mul_no_reduce!(a, b, fold_key!(a)))
 }
 
-#[unsafe_target_feature("avx512f,avx512bw,vpclmulqdq")]
+#[unsafe_target_feature::unsafe_target_feature("avx512f,avx512bw,avx512vl,vpclmulqdq")]
 impl GHash {
     pub const KEY_LEN: usize = 16;
     pub const BLOCK_LEN: usize = 16;
@@ -129,11 +252,9 @@ impl GHash {
 
     #[inline]
     pub fn new(key: &[u8; 16]) -> Self {
-        let key = key.clone();
-
         let tag = _mm_setzero_si128();
-        let vm = _mm_setr_epi8(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
-        let key = _mm_shuffle_epi8(_mm_loadu_si128(key.as_ptr() as *const __m128i), vm);
+        let vm = _mm_set_epi8(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+        let key = _mm_shuffle_epi8(_mm_loadu_si128(key.as_ptr() as _), vm);
 
         let key_orig = key;
 
@@ -189,14 +310,17 @@ impl GHash {
 
         Self {
             buf: tag,
-            // key: [key, key2, key3, key4, key5, key6, key7, key8],
             key: [
-                key16, key15, key14, key13, key12, key11, key10, key9,
-                key8, key7, key6, key5, key4, key3, key2, key,
+                key16, key15, key14, key13,
+                key12, key11, key10, key9,
+                key8, key7, key6, key5,
+                key4, key3, key2, key,
             ],
             fold_key: [
-                fold_key16, fold_key15, fold_key14, fold_key13, fold_key12, fold_key11, fold_key10, fold_key9,
-                fold_key8, fold_key7, fold_key6, fold_key5, fold_key4, fold_key3, fold_key2, fold_key,
+                fold_key16, fold_key15, fold_key14, fold_key13,
+                fold_key12, fold_key11, fold_key10, fold_key9,
+                fold_key8, fold_key7, fold_key6, fold_key5,
+                fold_key4, fold_key3, fold_key2, fold_key,
             ],
         }
     }
@@ -259,9 +383,9 @@ impl GHash {
             let ret2 = gf_mul_no_reduce!(self.key[self.key.len() - 2], m2, self.fold_key[self.fold_key.len() - 2]);
             let ret3 = gf_mul_no_reduce!(self.key[self.key.len() - 1], m3, self.fold_key[self.fold_key.len() - 1]);
 
-            let ret_0 = _mm_xor_si128(_mm_xor_si128(_mm_xor_si128(ret0.0, ret1.0), ret2.0), ret3.0);
-            let ret_1 = _mm_xor_si128(_mm_xor_si128(_mm_xor_si128(ret0.1, ret1.1), ret2.1), ret3.1);
-            let ret_2 = _mm_xor_si128(_mm_xor_si128(_mm_xor_si128(ret0.2, ret1.2), ret2.2), ret3.2);
+            let ret_0 = _mm_xor_si128(_mm_xor3_si128(ret0.0, ret1.0, ret2.0), ret3.0);
+            let ret_1 = _mm_xor_si128(_mm_xor3_si128(ret0.1, ret1.1, ret2.1), ret3.1);
+            let ret_2 = _mm_xor_si128(_mm_xor3_si128(ret0.2, ret1.2, ret2.2), ret3.2);
 
             self.buf = gf_mul_reduce!((ret_0, ret_1, ret_2));
         }
@@ -291,9 +415,9 @@ impl GHash {
             let ret4 = gf_mul_no_reduce!(self.key[self.key.len() - 2], m4, self.fold_key[self.fold_key.len() - 2]);
             let ret5 = gf_mul_no_reduce!(self.key[self.key.len() - 1], m5, self.fold_key[self.fold_key.len() - 1]);
 
-            let ret_0 = _mm_xor_si128(_mm_xor_si128(_mm_xor_si128(_mm_xor_si128(_mm_xor_si128(ret0.0, ret1.0), ret2.0), ret3.0), ret4.0), ret5.0);
-            let ret_1 = _mm_xor_si128(_mm_xor_si128(_mm_xor_si128(_mm_xor_si128(_mm_xor_si128(ret0.1, ret1.1), ret2.1), ret3.1), ret4.1), ret5.1);
-            let ret_2 = _mm_xor_si128(_mm_xor_si128(_mm_xor_si128(_mm_xor_si128(_mm_xor_si128(ret0.2, ret1.2), ret2.2), ret3.2), ret4.2), ret5.2);
+            let ret_0 = _mm_xor_si128(_mm_xor3_si128(ret0.0, ret1.0, ret2.0), _mm_xor3_si128(ret3.0, ret4.0, ret5.0));
+            let ret_1 = _mm_xor_si128(_mm_xor3_si128(ret0.1, ret1.1, ret2.1), _mm_xor3_si128(ret3.1, ret4.1, ret5.1));
+            let ret_2 = _mm_xor_si128(_mm_xor3_si128(ret0.2, ret1.2, ret2.2), _mm_xor3_si128(ret3.2, ret4.2, ret5.2));
 
             self.buf = gf_mul_reduce!((ret_0, ret_1, ret_2));
         }
@@ -302,16 +426,10 @@ impl GHash {
     #[inline]
     pub(crate) fn update_blocks_4x4(&mut self, m: &[[u8; 64]; 4]) {
         unsafe {
-            let shuf_lane_x4 = _mm512_set_epi8(
+            let shuf_lane_x4 = _mm512_broadcast_i32x4(_mm_set_epi8(
                 0, 1, 2, 3, 4, 5, 6, 7,
                 8, 9, 10, 11, 12, 13, 14, 15,
-                0, 1, 2, 3, 4, 5, 6, 7,
-                8, 9, 10, 11, 12, 13, 14, 15,
-                0, 1, 2, 3, 4, 5, 6, 7,
-                8, 9, 10, 11, 12, 13, 14, 15,
-                0, 1, 2, 3, 4, 5, 6, 7,
-                8, 9, 10, 11, 12, 13, 14, 15,
-            );
+            ));
             let m0 = _mm512_loadu_si512(m[0].as_ptr() as _);
             let m1 = _mm512_loadu_si512(m[1].as_ptr() as _);
             let m2 = _mm512_loadu_si512(m[2].as_ptr() as _);
@@ -326,11 +444,11 @@ impl GHash {
             let ret2 = gf_mul_no_reduce_x4!(_mm512_loadu_si512(self.key.as_ptr().add(8) as _), m2, _mm512_loadu_si512(self.fold_key.as_ptr().add(8) as _));
             let ret3 = gf_mul_no_reduce_x4!(_mm512_loadu_si512(self.key.as_ptr().add(12) as _), m3, _mm512_loadu_si512(self.fold_key.as_ptr().add(12) as _));
 
-            let ret_0 = _mm512_hxori128x4_epi128(_mm512_xor_si512(_mm512_xor3_si512(ret0.0, ret1.0, ret2.0), ret3.0));
-            let ret_1 = _mm512_hxori128x4_epi128(_mm512_xor_si512(_mm512_xor3_si512(ret0.1, ret1.1, ret2.1), ret3.1));
-            let ret_2 = _mm512_hxori128x4_epi128(_mm512_xor_si512(_mm512_xor3_si512(ret0.2, ret1.2, ret2.2), ret3.2));
+            let ret_0 = _mm512_xor3_si512(_mm512_xor_si512(ret0.0, ret1.0), ret2.0, ret3.0);
+            let ret_1 = _mm512_xor3_si512(_mm512_xor_si512(ret0.1, ret1.1), ret2.1, ret3.1);
+            let ret_2 = _mm512_xor3_si512(_mm512_xor_si512(ret0.2, ret1.2), ret2.2, ret3.2);
 
-            self.buf = gf_mul_reduce!((ret_0, ret_1, ret_2));
+            self.buf = _mm512_hxori128x4_epi128(gf_mul_reduce_x4!((ret_0, ret_1, ret_2)));
         }
     }
 
@@ -352,7 +470,7 @@ mod tests {
     use super::*;
     #[test]
     fn test_ghash() {
-        if !crate::is_hw_feature_detected!("avx512f", "avx512bw", "vpclmulqdq") {
+        if !crate::is_hw_feature_detected!("avx512f", "avx512bw", "avx512vl", "vpclmulqdq") {
             return;
         }
         ghash_test_case!();
