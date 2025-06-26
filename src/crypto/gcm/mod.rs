@@ -21,7 +21,7 @@ impl AsRef<[u8; NONCE_LEN]> for Nonce {
 const GCM_BLOCK_LEN: usize = 16;
 
 macro_rules! impl_block_cipher_with_gcm_mode {
-    ($name:tt, $cipher:tt, $ghash:tt, $tlen:tt$(, $feature:literal)?) => {
+    ($name:tt$(,$blocks_4x4:literal)?, $cipher:ty, $ghash:ty, $tlen:tt$(, $feature:literal)?) => {
         #[derive(Clone, Copy)]
         pub struct $name {
             cipher: $cipher,
@@ -94,14 +94,29 @@ macro_rules! impl_block_cipher_with_gcm_mode {
                 *counter = counter.wrapping_add(6);
                 [ctr0, ctr1, ctr2, ctr3, ctr4, ctr5]
             }
+
+            #[inline(always)]
+            fn ctr32_4x4_(nonce_block: &[u8; 16], counter: &mut u32) -> [[u8; 64]; 4] {
+                let mut ctr = [nonce_block.clone(); 16];
+
+                crate::const_loop!(i, 0, 16, {
+                    unsafe {
+                        *crate::utils::slice_to_array_at_mut(&mut ctr[i], Self::NONCE_LEN) = counter.wrapping_add((i + 1) as u32).to_be_bytes();
+                    }
+                });
+                *counter = counter.wrapping_add(16);
+                unsafe {
+                    core::mem::transmute::<[[u8; 16]; 16], [[u8; 64]; 4]>(ctr)
+                }
+            }
         }
 
         // 6.  AES GCM Algorithms for Secure Shell
         // https://tools.ietf.org/html/rfc5647#section-6
         $(#[unsafe_target_feature($feature)])?
         impl $name {
-            pub const KEY_LEN: usize = $cipher::KEY_LEN;
-            pub const BLOCK_LEN: usize = $cipher::BLOCK_LEN;
+            pub const KEY_LEN: usize = <$cipher>::KEY_LEN;
+            pub const BLOCK_LEN: usize = <$cipher>::BLOCK_LEN;
             // NOTE: variable-length IVs are supported by the GCM authenticated encryption algorithm,
             //       but the current practice is to restrict the IV length to 12 octets.
             //       This is because the IV is concatenated with the BlockCounter (u32) to form a Nonce of 12 + 4 = 16 octets.
@@ -130,14 +145,14 @@ macro_rules! impl_block_cipher_with_gcm_mode {
             pub fn new(key: [u8; 16]) -> Self {
                 // NOTE: GCM works only with block ciphers that have a block size of 16 bytes.
                 assert_eq!(Self::BLOCK_LEN, GCM_BLOCK_LEN);
-                assert_eq!(Self::BLOCK_LEN, $ghash::BLOCK_LEN);
+                assert_eq!(Self::BLOCK_LEN, <$ghash>::BLOCK_LEN);
 
-                let cipher = $cipher::new(key);
+                let cipher = <$cipher>::new(key);
 
                 let mut h = [0u8; Self::BLOCK_LEN];
                 cipher.encrypt(&mut h);
 
-                let ghash = $ghash::new(&h);
+                let ghash = <$ghash>::new(&h);
 
                 Self { cipher, ghash }
             }
@@ -146,15 +161,15 @@ macro_rules! impl_block_cipher_with_gcm_mode {
             pub fn from_slice(key: &[u8]) -> Self {
                 // NOTE: GCM works only with block ciphers that have a block size of 16 bytes.
                 assert_eq!(Self::BLOCK_LEN, GCM_BLOCK_LEN);
-                assert_eq!(Self::BLOCK_LEN, $ghash::BLOCK_LEN);
+                assert_eq!(Self::BLOCK_LEN, <$ghash>::BLOCK_LEN);
                 assert_eq!(key.len(), Self::KEY_LEN);
 
-                let cipher = $cipher::from_slice(key);
+                let cipher = <$cipher>::from_slice(key);
 
                 let mut h = [0u8; Self::BLOCK_LEN];
                 cipher.encrypt(&mut h);
 
-                let ghash = $ghash::new(&h);
+                let ghash = <$ghash>::new(&h);
 
                 Self { cipher, ghash }
             }
@@ -219,10 +234,98 @@ macro_rules! impl_block_cipher_with_gcm_mode {
                 let mut start = 0;
                 let mut plen_remain = plen;
 
-                const IS_SOFT: bool = $cipher::IS_SOFT && $ghash::IS_SOFT;
+                const IS_SOFT: bool = <$cipher>::IS_SOFT && <$ghash>::IS_SOFT;
+
+                $(
+                _ = $blocks_4x4;
+                if plen_remain >= Self::BLOCK_LEN * 4 * 4 {
+                    let mut ctrs = Self::ctr32_4x4_(&mut counter_block, &mut counter);
+                    let mut blocks = [
+                        unsafe {slice_to_array_at_mut(plaintext_in_ciphertext_out, start).clone()},
+                        unsafe {slice_to_array_at_mut(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 4).clone()},
+                        unsafe {slice_to_array_at_mut(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 4 * 2).clone()},
+                        unsafe {slice_to_array_at_mut(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 4 * 3).clone()},
+                    ];
+                    debug_assert!(ctrs[0].len() == Self::BLOCK_LEN * 4);
+                    self.cipher.encrypt_blocks_xor_4x4(
+                        ctrs,
+                        &mut blocks,
+                    );
+
+                    ctrs = Self::ctr32_4x4_(&mut counter_block, &mut counter);
+                    unsafe {
+                        crate::const_loop!(i, 0, 4, {
+                            *slice_to_array_at_mut(plaintext_in_ciphertext_out, start + i * Self::BLOCK_LEN * 4) = blocks[i];
+                        });
+                    }
+
+                    start += Self::BLOCK_LEN * 4 * 4;
+                    plen_remain -= Self::BLOCK_LEN * 4 * 4;
+
+                    while plen_remain >= Self::BLOCK_LEN * 4 * 4 {
+                        let mut next_blocks = [
+                            unsafe {slice_to_array_at_mut(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 4 * 0).clone()},
+                            unsafe {slice_to_array_at_mut(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 4 * 1).clone()},
+                            unsafe {slice_to_array_at_mut(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 4 * 2).clone()},
+                            unsafe {slice_to_array_at_mut(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 4 * 3).clone()},
+                        ];
+                        self.cipher.encrypt_blocks_xor_4x4(ctrs, &mut next_blocks);
+                        mac.update_blocks_4x4(&blocks);
+
+                        blocks = next_blocks;
+
+                        #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+                        {
+                            ctrs = Self::ctr32_4x4_(&counter_block, &mut counter);
+                        }
+
+                        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                        { unsafe {
+                            let mut ctr_zmm0;
+                            let mut ctr_zmm1;
+                            let mut ctr_zmm2;
+                            let mut ctr_zmm3 = _mm512_loadu_si512(ctrs[3].as_ptr() as _);
+
+                            let bswap_shuffle = _mm512_broadcast_i32x4(_mm_set_epi8(
+                                0, 1, 2, 3, 4, 5, 6, 7,
+                                8, 9, 10, 11, 12, 13, 14, 15
+                            ));
+                            ctr_zmm3 = _mm512_shuffle_epi8(ctr_zmm3, bswap_shuffle);
+
+                            ctr_zmm0 = _mm512_add_epi32(ctr_zmm3, _mm512_broadcast_i32x4(_mm_setr_epi32(4, 0, 0, 0)));
+                            ctr_zmm1 = _mm512_add_epi32(ctr_zmm0, _mm512_broadcast_i32x4(_mm_setr_epi32(4, 0, 0, 0)));
+                            ctr_zmm2 = _mm512_add_epi32(ctr_zmm1, _mm512_broadcast_i32x4(_mm_setr_epi32(4, 0, 0, 0)));
+                            ctr_zmm3 = _mm512_add_epi32(ctr_zmm2, _mm512_broadcast_i32x4(_mm_setr_epi32(4, 0, 0, 0)));
+
+                            ctr_zmm0 = _mm512_shuffle_epi8(ctr_zmm0, bswap_shuffle);
+                            ctr_zmm1 = _mm512_shuffle_epi8(ctr_zmm1, bswap_shuffle);
+                            ctr_zmm2 = _mm512_shuffle_epi8(ctr_zmm2, bswap_shuffle);
+                            ctr_zmm3 = _mm512_shuffle_epi8(ctr_zmm3, bswap_shuffle);
+
+                            _mm512_storeu_si512(ctrs[0].as_mut_ptr() as _, ctr_zmm0);
+                            _mm512_storeu_si512(ctrs[1].as_mut_ptr() as _, ctr_zmm1);
+                            _mm512_storeu_si512(ctrs[2].as_mut_ptr() as _, ctr_zmm2);
+                            _mm512_storeu_si512(ctrs[3].as_mut_ptr() as _, ctr_zmm3);
+                            counter += 16;
+                        }}
+
+                        unsafe {
+                            crate::const_loop!(i, 0, 4, {
+                                *slice_to_array_at_mut(plaintext_in_ciphertext_out, start + i * Self::BLOCK_LEN * 4) = blocks[i];
+                            });
+                        }
+
+                        start += Self::BLOCK_LEN * 4 * 4;
+                        plen_remain -= Self::BLOCK_LEN * 4 * 4;
+                    }
+
+                    counter -= 16;
+                    mac.update_blocks_4x4(&blocks);
+                }
+                )?
 
                 #[cfg(ghash_block_x6)]
-                if !$cipher::IS_SOFT && !$ghash::IS_SOFT && plen_remain >= Self::BLOCK_LEN * 6 {
+                if !<$cipher>::IS_SOFT && !<$ghash>::IS_SOFT && plen_remain >= Self::BLOCK_LEN * 6 {
                     let [mut ectr0, mut ectr1, mut ectr2, mut ectr3, mut ectr4, mut ectr5] = Self::ctr32x6_(&counter_block, &mut counter);
 
                     let mut block0 = unsafe {slice_to_array_at(plaintext_in_ciphertext_out, start).clone()};
@@ -500,7 +603,35 @@ macro_rules! impl_block_cipher_with_gcm_mode {
                 let mut start = 0;
                 let mut clen_remain = clen;
 
-                const IS_SOFT: bool = $cipher::IS_SOFT && $ghash::IS_SOFT;
+                const IS_SOFT: bool = <$cipher>::IS_SOFT && <$ghash>::IS_SOFT;
+
+                $(
+                _ = $blocks_4x4;
+                while clen_remain >= Self::BLOCK_LEN * 4 * 4 {
+                    let ctrs = Self::ctr32_4x4_(&mut counter_block, &mut counter);
+                    let mut blocks = [
+                        unsafe {slice_to_array_at_mut(ciphertext_in_plaintext_out, start).clone()},
+                        unsafe {slice_to_array_at_mut(ciphertext_in_plaintext_out, start + Self::BLOCK_LEN * 4).clone()},
+                        unsafe {slice_to_array_at_mut(ciphertext_in_plaintext_out, start + Self::BLOCK_LEN * 4 * 2).clone()},
+                        unsafe {slice_to_array_at_mut(ciphertext_in_plaintext_out, start + Self::BLOCK_LEN * 4 * 3).clone()},
+                    ];
+                    mac.update_blocks_4x4(&blocks);
+                    debug_assert!(ctrs[0].len() == Self::BLOCK_LEN * 4);
+                    self.cipher.encrypt_blocks_xor_4x4(
+                        ctrs,
+                        &mut blocks,
+                    );
+                    
+                    unsafe {
+                        crate::const_loop!(i, 0, 4, {
+                            *slice_to_array_at_mut(ciphertext_in_plaintext_out, start + i * Self::BLOCK_LEN * 4) = blocks[i];
+                        });
+                    }
+
+                    start += Self::BLOCK_LEN * 4 * 4;
+                    clen_remain -= Self::BLOCK_LEN * 4 * 4;
+                }
+                )?
 
                 while IS_SOFT && clen_remain >= Self::BLOCK_LEN * 4 {
                     let [mut ectr0, mut ectr1, mut ectr2, mut ectr3] = Self::ctr32x4_(&counter_block, &mut counter);
@@ -529,8 +660,7 @@ macro_rules! impl_block_cipher_with_gcm_mode {
                 }
 
                 while !IS_SOFT && clen_remain >= Self::BLOCK_LEN * 8 {
-                    let [mut ectr0, mut ectr1, mut ectr2, mut ectr3] = Self::ctr32x4_(&counter_block, &mut counter);
-                    self.cipher.encrypt_4_blocks(&mut ectr0, &mut ectr1, &mut ectr2, &mut ectr3);
+                    let [ectr0, ectr1, ectr2, ectr3] = Self::ctr32x4_(&counter_block, &mut counter);
 
                     let mut block0 = unsafe {slice_to_array_at(ciphertext_in_plaintext_out, start).clone()};
                     let mut block1 = unsafe {slice_to_array_at(ciphertext_in_plaintext_out, start + Self::BLOCK_LEN).clone()};
@@ -539,13 +669,12 @@ macro_rules! impl_block_cipher_with_gcm_mode {
 
                     mac.update_4block_for_aes([&block0, &block1, &block2, &block3]);
 
-                    xor_si128_inplace(&mut block0, &ectr0);
-                    xor_si128_inplace(&mut block1, &ectr1);
-                    xor_si128_inplace(&mut block2, &ectr2);
-                    xor_si128_inplace(&mut block3, &ectr3);
+                    self.cipher.encrypt_4_blocks_xor(
+                        [&ectr0, &ectr1, &ectr2, &ectr3],
+                        [&mut block0, &mut block1, &mut block2, &mut block3],
+                    );
 
-                    let [mut ectr0, mut ectr1, mut ectr2, mut ectr3] = Self::ctr32x4_(&counter_block, &mut counter);
-                    self.cipher.encrypt_4_blocks(&mut ectr0, &mut ectr1, &mut ectr2, &mut ectr3);
+                    let [ectr0, ectr1, ectr2, ectr3] = Self::ctr32x4_(&counter_block, &mut counter);
 
                     unsafe {
                         *slice_to_array_at_mut(ciphertext_in_plaintext_out, start) = block0;
@@ -561,10 +690,10 @@ macro_rules! impl_block_cipher_with_gcm_mode {
 
                     mac.update_4block_for_aes([&block4, &block5, &block6, &block7]);
 
-                    xor_si128_inplace(&mut block4, &ectr0);
-                    xor_si128_inplace(&mut block5, &ectr1);
-                    xor_si128_inplace(&mut block6, &ectr2);
-                    xor_si128_inplace(&mut block7, &ectr3);
+                    self.cipher.encrypt_4_blocks_xor(
+                        [&ectr0, &ectr1, &ectr2, &ectr3],
+                        [&mut block4, &mut block5, &mut block6, &mut block7],
+                    );
 
                     unsafe {
                         *slice_to_array_at_mut(ciphertext_in_plaintext_out, start + Self::BLOCK_LEN * 4) = block4;
@@ -650,6 +779,8 @@ cfg_if::cfg_if!{
         use crate::crypto::aes::x86_avx::AES128 as AES128AVX;
         use crate::crypto::ghash::x86_avx::GHash as GHashAVX;
         impl_block_cipher_with_gcm_mode!(AES128GcmAVX, AES128AVX, GHashAVX, 16, "avx,aes,pclmulqdq");
+        #[cfg(avx512_feature)]
+        impl_block_cipher_with_gcm_mode!(AES128GcmAVX512, "avx512", crate::crypto::aes::x86_avx512::AES128, crate::crypto::ghash::x86_avx512::GHash, 16, "avx512f,avx512bw,avx512vl,vpclmulqdq,vaes");
     } else if #[cfg(target_arch = "aarch64")] {
         use crate::crypto::aes::arm::AES128 as AES128Aarch64;
         use crate::crypto::ghash::aarch64::GHash as GHashAarch64;
@@ -665,7 +796,9 @@ cfg_if::cfg_if!{
 }
 
 cfg_if::cfg_if! {
-    if #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "aes", target_feature = "pclmulqdq", target_feature = "avx"))] {
+    if #[cfg(all(avx512_feature, any(target_arch = "x86", target_arch = "x86_64"), target_feature = "vaes", target_feature = "vpclmulqdq", target_feature = "avx512f", target_feature = "avx512vl", target_feature = "avx512bw"))] {
+        pub type AES128Gcm = AES128GcmAVX512;
+    } else if #[cfg(all(not(avx512_feature), any(target_arch = "x86", target_arch = "x86_64"), target_feature = "avx", target_feature = "aes", target_feature = "pclmulqdq"))] {
         pub type AES128Gcm = AES128GcmAVX;
     } else if #[cfg(all(target_arch = "aarch64", target_feature = "neon", target_feature = "aes"))] {
         pub type AES128Gcm = AES128GcmHW;
@@ -682,6 +815,9 @@ pub union AES128GcmDynamic {
     hw: AES128GcmHW,
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     avx: AES128GcmAVX,
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    #[cfg(avx512_feature)]
+    avx512: AES128GcmAVX512,
     #[cfg(target_arch = "arm")]
     hw: AES128GcmHW,
     #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
@@ -689,7 +825,9 @@ pub union AES128GcmDynamic {
     sw: AES128GcmSoft,
 }
 
-static mut AES_128_GCM_IDX: u32 = u32::MAX; // 0: avx/arm aes-ni, 1: x86/arm neon, 2: soft
+// x86: 0 - vex aes-ni, 1 - sse aes-ni, 2 - soft, 3 - avx512
+// arm/aarch64: 0 - aes-ni, 1 - neon, 2 - soft
+static mut AES_128_GCM_IDX: u32 = u32::MAX;
 
 impl AES128GcmDynamic {
     pub const KEY_LEN: usize = 16;
@@ -701,7 +839,12 @@ impl AES128GcmDynamic {
     pub fn new(key: [u8; Self::KEY_LEN]) -> Self {
         unsafe {
             if AES_128_GCM_IDX == u32::MAX {
-                if crate::is_hw_feature_detected!(
+                if cfg!(avx512_feature) && crate::is_hw_feature_detected!(
+                    "x86" => ("avx512f", "avx512bw", "avx512vl", "vaes", "vpclmulqdq"),
+                    "x86_64" => ("avx512f", "avx512bw", "avx512vl", "vaes", "vpclmulqdq"),
+                ) {
+                    AES_128_GCM_IDX = 3;
+                } else if crate::is_hw_feature_detected!(
                     "x86" => ("pclmulqdq", "aes", "sse2", "ssse3"),
                     "x86_64" => ("pclmulqdq", "aes", "sse2", "ssse3"),
                     "aarch64" => ("neon"),
@@ -733,6 +876,11 @@ impl AES128GcmDynamic {
                 1 => AES128GcmDynamic {
                     hw: AES128GcmHW::new(key),
                 },
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                #[cfg(avx512_feature)]
+                3 => AES128GcmDynamic {
+                    avx512: AES128GcmAVX512::new(key),
+                },
                 #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
                 1 => AES128GcmDynamic {
                     neon: AES128GcmNEON::new(key),
@@ -762,6 +910,9 @@ impl AES128GcmDynamic {
                 0 => self.hw.encrypt_slice(nonce, aad, aead_pkt),
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 1 => self.hw.encrypt_slice(nonce, aad, aead_pkt),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                #[cfg(avx512_feature)]
+                3 => self.avx512.encrypt_slice(nonce, aad, aead_pkt),
                 #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
                 1 => self.neon.encrypt_slice(nonce, aad, aead_pkt),
                 2 => self.sw.encrypt_slice(nonce, aad, aead_pkt),
@@ -776,6 +927,9 @@ impl AES128GcmDynamic {
             match AES_128_GCM_IDX {
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 0 => self.avx.decrypt_slice(nonce, aad, aead_pkt),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                #[cfg(avx512_feature)]
+                3 => self.avx512.decrypt_slice(nonce, aad, aead_pkt),
                 #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
                 0 => self.hw.decrypt_slice(nonce, aad, aead_pkt),
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -800,6 +954,9 @@ impl AES128GcmDynamic {
             match AES_128_GCM_IDX {
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 0 => self.avx.encrypt_slice_detached(nonce, aad, plaintext_in_ciphertext_out, tag_out),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                #[cfg(avx512_feature)]
+                3 => self.avx512.encrypt_slice_detached(nonce, aad, plaintext_in_ciphertext_out, tag_out),
                 #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
                 0 => self.hw.encrypt_slice_detached(nonce, aad, plaintext_in_ciphertext_out, tag_out),
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -831,6 +988,9 @@ impl AES128GcmDynamic {
                 #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
                 1 => self.neon.decrypt_slice_detached(nonce, aad, ciphertext_in_plaintext_out, tag_in),
                 2 => self.sw.decrypt_slice_detached(nonce, aad, ciphertext_in_plaintext_out, tag_in),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                #[cfg(avx512_feature)]
+                3 => self.avx512.decrypt_slice_detached(nonce, aad, ciphertext_in_plaintext_out, tag_in),
                 _ => unreachable!(),
             }
         }
@@ -865,13 +1025,30 @@ mod tests {
         let nonce_ring = ring::aead::Nonce::try_assume_unique_for_key(&nonce).unwrap();
         let aad_ring = ring::aead::Aad::from(aad);
         let ret = key.seal_in_place_separate_tag(nonce_ring, aad_ring, &mut ciphertext_ring);
-        assert_eq!(&ciphertext, &ciphertext_ring);
-        assert_eq!(tag, ret.unwrap().as_ref());
-
+        assert_eq!(&ciphertext, &ciphertext_ring, "cipher_type: {} ciphertext mismatch", std::any::type_name::<$cipher_type>());
+        assert_eq!(tag, ret.unwrap().as_ref(), "cipher_type: {} tag mismatch", std::any::type_name::<$cipher_type>());
 
         let ret = cipher.decrypt_slice_detached(&nonce, aad, &mut ciphertext, &tag);
-        assert!(ret);
-        assert_eq!(&ciphertext_orig, &ciphertext[..]);
+        assert!(ret, "cipher_type: {} decrypt_slice_detached failed", std::any::type_name::<$cipher_type>());
+        assert_eq!(&ciphertext_orig, &ciphertext[..], "cipher_type: {} plaintext mismatch after decrypt", std::any::type_name::<$cipher_type>());
+
+        for _ in 0..100 {
+            let length = (rand::random::<u32>() % 8192) as usize;
+            let data = (0..length).map(|_| rand::random::<u8>()).collect::<Vec<u8>>();
+            let mut ciphertext = data.clone();
+            let mut tag = [0u8; 16];
+            cipher.encrypt_slice_detached(&nonce, aad, &mut ciphertext, &mut tag);
+
+            let mut ciphertext_ring = data.clone();
+            let nonce_ring = ring::aead::Nonce::try_assume_unique_for_key(&nonce).unwrap();
+            let tag_ring = key.seal_in_place_separate_tag(nonce_ring, aad_ring, &mut ciphertext_ring);
+            assert_eq!(&ciphertext, &ciphertext_ring, "cipher_type: {} ciphertext mismatch for random data", std::any::type_name::<$cipher_type>());
+            assert_eq!(tag, tag_ring.unwrap().as_ref(), "cipher_type: {} tag mismatch for random data", std::any::type_name::<$cipher_type>());
+
+            let ret = cipher.decrypt_slice_detached(&nonce, aad, &mut ciphertext, &tag);
+            assert!(ret, "cipher_type: {} decrypt_slice_detached failed for random data", std::any::type_name::<$cipher_type>());
+            assert_eq!(&data, &ciphertext[..], "cipher_type: {} plaintext mismatch after decrypt for random data", std::any::type_name::<$cipher_type>());
+        }
 
         }};
     }
@@ -886,6 +1063,11 @@ mod tests {
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         if crate::is_hw_feature_detected!("avx", "aes", "pclmulqdq") {
             test_aes128_gcm_impl!(AES128GcmAVX);
+        }
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        #[cfg(avx512_feature)]
+        if crate::is_hw_feature_detected!("avx512f", "avx512vl", "avx512bw", "vaes", "vpclmulqdq") {
+            test_aes128_gcm_impl!(AES128GcmAVX512);
         }
         #[cfg(target_arch = "aarch64")]
         if crate::is_hw_feature_detected!("aes", "neon") {
