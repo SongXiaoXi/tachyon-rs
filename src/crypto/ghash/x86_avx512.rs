@@ -110,7 +110,7 @@ macro_rules! fold_key_x4 {
         {
             let key = $key;
             _mm512_xor_si512(_mm512_shuffle_epi32(key, crate::_MM_SHUFFLE(1, 0, 3, 2)), key)
-            // _mm_xor_si128(_mm_srli_si128(key, 8), key)
+            // _mm512_xor_si512(_mm512_bsrli_epi128(key, 8), key)
         }
     }
 }
@@ -118,23 +118,20 @@ macro_rules! fold_key_x4 {
 macro_rules! gf_mul_reduce {
     ($a:expr) => {{
         let (mut r0, mut r1, r2) = $a;
+        r1 = _mm_xor_si128(r0, _mm_xor_si128(r1, r2));
 
-        r1 = _mm_xor3_si128(r0, r1, r2);
+        let poly = _mm_set1_epi64x(0xc200000000000000u64 as i64);
+        let tmp0 = _mm_xor_si128(_mm_clmulepi64_si128(r0, poly, 0x00), r1);
 
-        r0 = _mm_xor_si128(r0, _mm_slli_si128(r1, 8));
-
-        let tmp = _mm_xor3_si128(_mm_slli_epi64(r0, 57), _mm_slli_epi64(r0, 62), _mm_slli_epi64(r0, 63));
-
-        r0 = _mm_xor_si128(r0, _mm_slli_si128(tmp, 8));
-
-        _mm_xor3_si128(
-            _mm_xor3_si128(
+        r0 = _mm_xor_si128(r0, _mm_shuffle_epi32(tmp0, crate::_MM_SHUFFLE(1, 0, 3, 2)));
+        let tmp1 = _mm_clmulepi64_si128(r0, poly, 0x11);
+        
+        _mm_xor_si128(
+            _mm_xor_si128(
                 r0,
-                _mm_srli_epi64(r0, 1),
-                _mm_srli_epi64(r0, 2),
+                r2,
             ),
-            _mm_xor3_si128(_mm_srli_si128(r1, 8), r2, _mm_srli_si128(tmp, 8)),
-            _mm_srli_epi64(r0, 7),
+            tmp1,
         )
     }};
 }
@@ -155,34 +152,36 @@ macro_rules! gf_mul_no_reduce_x4 {
     };
 }
 
-// #[allow(unused_macros)]
-// macro_rules! gf_mul_reduce_x4 {
-//     ($a:expr) => {{
-//         let (mut r0, mut r1, r2) = $a;
+/*
+#[allow(unused_macros)]
+macro_rules! gf_mul_reduce_x4 {
+    ($a:expr) => {{
+        let (mut r0, mut r1, r2) = $a;
 
-//         r1 = _mm512_xor3_si512(r0, r1, r2);
+        r1 = _mm512_xor3_si512(r0, r1, r2);
 
-//         r0 = _mm512_xor_si512(r0, _mm512_bslli_epi128(r1, 8));
+        r0 = _mm512_xor_si512(r0, _mm512_bslli_epi128(r1, 8));
 
-//         let tmp = _mm512_xor3_si512(_mm512_slli_epi64(r0, 57), _mm512_slli_epi64(r0, 62), _mm512_slli_epi64(r0, 63));
+        let tmp = _mm512_xor3_si512(_mm512_slli_epi64(r0, 57), _mm512_slli_epi64(r0, 62), _mm512_slli_epi64(r0, 63));
 
-//         r0 = _mm512_xor_si512(r0, _mm512_bslli_epi128(tmp, 8));
+        r0 = _mm512_xor_si512(r0, _mm512_bslli_epi128(tmp, 8));
 
-//         _mm512_xor3_si512(
-//             _mm512_xor3_si512(
-//                 r2,
-//                 _mm512_bsrli_epi128(r1, 8),
-//                 _mm512_bsrli_epi128(tmp, 8)
-//             ),
-//             _mm512_xor3_si512(
-//                 r0,
-//                 _mm512_srli_epi64(r0, 1),
-//                 _mm512_srli_epi64(r0, 2),
-//             ),
-//             _mm512_srli_epi64(r0, 7),
-//         )
-//     }};
-// }
+        _mm512_xor3_si512(
+            _mm512_xor3_si512(
+                r2,
+                _mm512_bsrli_epi128(r1, 8),
+                _mm512_bsrli_epi128(tmp, 8)
+            ),
+            _mm512_xor3_si512(
+                r0,
+                _mm512_srli_epi64(r0, 1),
+                _mm512_srli_epi64(r0, 2),
+            ),
+            _mm512_srli_epi64(r0, 7),
+        )
+    }};
+}
+*/
 
 #[allow(unused_macros)]
 macro_rules! gf_mul_reduce_x4 {
@@ -220,17 +219,27 @@ macro_rules! gf_mul_reduce_x4 {
         */
 
         let (mut r0, mut r1, r2) = $a;
-        r1 = _mm512_xor3_si512(r0, r1, r2);
+        r1 = _mm512_xor3_si512(r1, r0, r2);
 
         let poly = _mm512_set1_epi64(0xc200000000000000u64 as i64);
+        /*
         let tmp0 = _mm512_xor_si512(_mm512_clmulepi64_epi128(r0, poly, 0x00), r1);
-
         r0 = _mm512_xor_si512(r0, _mm512_shuffle_epi32(tmp0, crate::_MM_SHUFFLE(1, 0, 3, 2)));
         let tmp1 = _mm512_clmulepi64_epi128(r0, poly, 0x11);
         
         _mm512_xor3_si512(
             r0,
             r2,
+            tmp1,
+        )
+        */
+
+        r0 = _mm512_xor3_si512(r1, _mm512_clmulepi64_epi128(r0, poly, 0x00), _mm512_shuffle_epi32(r0, crate::_MM_SHUFFLE(1, 0, 3, 2)));
+        let tmp1 = _mm512_clmulepi64_epi128(r0, poly, 0x00);
+
+        _mm512_xor3_si512(
+            r2,
+            _mm512_shuffle_epi32(r0, crate::_MM_SHUFFLE(1, 0, 3, 2)),
             tmp1,
         )
     }};
@@ -415,9 +424,9 @@ impl GHash {
             let ret4 = gf_mul_no_reduce!(self.key[self.key.len() - 2], m4, self.fold_key[self.fold_key.len() - 2]);
             let ret5 = gf_mul_no_reduce!(self.key[self.key.len() - 1], m5, self.fold_key[self.fold_key.len() - 1]);
 
-            let ret_0 = _mm_xor_si128(_mm_xor3_si128(ret0.0, ret1.0, ret2.0), _mm_xor3_si128(ret3.0, ret4.0, ret5.0));
-            let ret_1 = _mm_xor_si128(_mm_xor3_si128(ret0.1, ret1.1, ret2.1), _mm_xor3_si128(ret3.1, ret4.1, ret5.1));
-            let ret_2 = _mm_xor_si128(_mm_xor3_si128(ret0.2, ret1.2, ret2.2), _mm_xor3_si128(ret3.2, ret4.2, ret5.2));
+            let ret_0 = _mm_xor_si128(_mm_xor3_si128(_mm_xor3_si128(ret0.0, ret1.0, ret2.0), ret3.0, ret4.0), ret5.0);
+            let ret_1 = _mm_xor_si128(_mm_xor3_si128(_mm_xor3_si128(ret0.1, ret1.1, ret2.1), ret3.1, ret4.1), ret5.1);
+            let ret_2 = _mm_xor_si128(_mm_xor3_si128(_mm_xor3_si128(ret0.2, ret1.2, ret2.2), ret3.2, ret4.2), ret5.2);
 
             self.buf = gf_mul_reduce!((ret_0, ret_1, ret_2));
         }
@@ -444,9 +453,9 @@ impl GHash {
             let ret2 = gf_mul_no_reduce_x4!(_mm512_loadu_si512(self.key.as_ptr().add(8) as _), m2, _mm512_loadu_si512(self.fold_key.as_ptr().add(8) as _));
             let ret3 = gf_mul_no_reduce_x4!(_mm512_loadu_si512(self.key.as_ptr().add(12) as _), m3, _mm512_loadu_si512(self.fold_key.as_ptr().add(12) as _));
 
-            let ret_0 = _mm512_xor3_si512(_mm512_xor_si512(ret0.0, ret1.0), ret2.0, ret3.0);
-            let ret_1 = _mm512_xor3_si512(_mm512_xor_si512(ret0.1, ret1.1), ret2.1, ret3.1);
-            let ret_2 = _mm512_xor3_si512(_mm512_xor_si512(ret0.2, ret1.2), ret2.2, ret3.2);
+            let ret_0 = _mm512_xor_si512(_mm512_xor3_si512(ret0.0, ret1.0, ret2.0), ret3.0);
+            let ret_1 = _mm512_xor_si512(_mm512_xor3_si512(ret0.1, ret1.1, ret2.1), ret3.1);
+            let ret_2 = _mm512_xor_si512(_mm512_xor3_si512(ret0.2, ret1.2, ret2.2), ret3.2);
 
             self.buf = _mm512_hxori128x4_epi128(gf_mul_reduce_x4!((ret_0, ret_1, ret_2)));
         }

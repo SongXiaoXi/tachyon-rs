@@ -140,29 +140,6 @@ macro_rules! gf_mul_reduce {
     };
 }
 
-/*
-macro_rules! gf_mul_reduce {
-    ($a:expr) => {{
-        let (mut r0, mut r1, r2) = $a;
-        r1 = _mm_xor_si128(r0, _mm_xor_si128(r1, r2));
-
-        let poly = _mm_set1_epi64x(0xc200000000000000u64 as i64);
-        let tmp0 = _mm_xor_si128(_mm_clmulepi64_si128(r0, poly, 0x00), r1);
-
-        r0 = _mm_xor_si128(r0, _mm_shuffle_epi32(tmp0, crate::_MM_SHUFFLE(1, 0, 3, 2)));
-        let tmp1 = _mm_clmulepi64_si128(r0, poly, 0x11);
-        
-        _mm_xor_si128(
-            _mm_xor_si128(
-                r0,
-                r2,
-            ),
-            tmp1,
-        )
-    }};
-}
-*/
-
 macro_rules! x86_ghash_128_impl {
     ($($feature:literal)?) => {
 #[derive(Clone, Copy)]
@@ -295,12 +272,12 @@ impl GHash {
     pub(crate) fn update_6block_for_aes(&mut self, m: [&[u8; 16]; 6]) {
         unsafe {
             let vm = _mm_setr_epi8(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
-            let m0 = _mm_loadu_si128(m[0].as_ptr() as *const __m128i);
-            let m1 = _mm_loadu_si128(m[1].as_ptr() as *const __m128i);
-            let m2 = _mm_loadu_si128(m[2].as_ptr() as *const __m128i);
-            let m3 = _mm_loadu_si128(m[3].as_ptr() as *const __m128i);
-            let m4 = _mm_loadu_si128(m[4].as_ptr() as *const __m128i);
-            let m5 = _mm_loadu_si128(m[5].as_ptr() as *const __m128i);
+            let m0 = _mm_loadu_si128(m[0].as_ptr() as *const _);
+            let m1 = _mm_loadu_si128(m[1].as_ptr() as *const _);
+            let m2 = _mm_loadu_si128(m[2].as_ptr() as *const _);
+            let m3 = _mm_loadu_si128(m[3].as_ptr() as *const _);
+            let m4 = _mm_loadu_si128(m[4].as_ptr() as *const _);
+            let m5 = _mm_loadu_si128(m[5].as_ptr() as *const _);
             let m0 = _mm_xor_si128(_mm_shuffle_epi8(m0, vm), self.buf);
             let m1 = _mm_shuffle_epi8(m1, vm);
             let m2 = _mm_shuffle_epi8(m2, vm);
