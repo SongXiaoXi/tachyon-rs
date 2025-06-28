@@ -64,10 +64,8 @@ unsafe fn gf_mul_reduce_pre_k(a: (uint8x16_t, uint8x16_t, uint8x16_t)) -> uint8x
             r0 = veorq_u8(r0, t1);
         } else {
             t1 = vextq_u8(t0, t0, 8);
-            let mut r1 = vget_low_u8(veorq_u8(r1, t1));
-            r1 = veor_u8(r1, vget_high_u8(t2));
-            let t3 = vreinterpretq_u8_p128(vmull_p64(transmute(r1), transmute(vget_low_u8(p))));
-
+            let r1 = veorq_u8(veorq_u8(vextq_u8(r1, r1, 8), t0), t2);
+            let t3 = vreinterpretq_u8_p128(vmull_high_p64(vreinterpretq_p64_u8(r1), vreinterpretq_p64_u8(p)));
             r0 = veorq_u8(r0, t1);
             t1 = vextq_u8(t0, t2, 8);
             r0 = veorq_u8(r0, t1);

@@ -433,27 +433,27 @@ impl AES128 {
     }
 
     #[inline(always)]
-    pub(crate) fn encrypt_4_blocks_xor(&self, data0: &[u8; 16], data1: &[u8; 16], data2: &[u8; 16], data3: &[u8; 16], text0: &mut [u8; 16], text1: &mut [u8; 16], text2: &mut [u8; 16], text3: &mut [u8; 16]) {
-        let mut data0 = *data0;
-        let mut data1 = *data1;
-        let mut data2 = *data2;
-        let mut data3 = *data3;
+    pub(crate) fn encrypt_4_blocks_xor(&self, data: [&[u8; 16]; 4], text: [&mut [u8; 16]; 4]) {
+        let mut data0 = *data[0];
+        let mut data1 = *data[1];
+        let mut data2 = *data[2];
+        let mut data3 = *data[3];
 
         self.encrypt_4_blocks(&mut data0, &mut data1, &mut data2, &mut data3);
 
-        crate::utils::portable::xor_si128_inplace(text0, &data0);
-        crate::utils::portable::xor_si128_inplace(text1, &data1);
-        crate::utils::portable::xor_si128_inplace(text2, &data2);
-        crate::utils::portable::xor_si128_inplace(text3, &data3);
+        crate::utils::portable::xor_si128_inplace(text[0], &data0);
+        crate::utils::portable::xor_si128_inplace(text[1], &data1);
+        crate::utils::portable::xor_si128_inplace(text[2], &data2);
+        crate::utils::portable::xor_si128_inplace(text[3], &data3);
     }
 
     #[inline(always)]
-    pub(crate) fn encrypt_6_blocks_xor(&self, _data0: &[u8; 16], _data1: &[u8; 16], _data2: &[u8; 16], _data3: &[u8; 16], _data4: &[u8; 16], _data5: &[u8; 16], _text0: &mut [u8; 16], _text1: &mut [u8; 16], _text2: &mut [u8; 16], _text3: &mut [u8; 16], _text4: &mut [u8; 16], _text5: &mut [u8; 16]) {
+    pub(crate) fn encrypt_6_blocks_xor(&self, _data: [&[u8; 16]; 6], _text: [&mut [u8; 16]; 6]) {
         unimplemented!();
     }
 
     #[inline(always)]
-    pub fn decrypt_4_blocks(&self, data0: &mut [u8; 16], data1: &mut [u8; 16], data2: &mut [u8; 16], data3: &mut [u8; 16]) {
+    pub(crate) fn decrypt_4_blocks(&self, data0: &mut [u8; 16], data1: &mut [u8; 16], data2: &mut [u8; 16], data3: &mut [u8; 16]) {
         let mut blocks = [
             *data0, *data1, *data2, *data3
         ];
