@@ -1,5 +1,9 @@
 use crate::utils::portable::xor_si128_inplace;
 use crate::utils::*;
+#[cfg(target_arch = "x86_64")]
+use core::arch::x86_64::*;
+#[cfg(target_arch = "x86")]
+use core::arch::x86::*;
 
 pub const NONCE_LEN: usize = 96 / 8;
 pub struct Nonce(pub [u8; NONCE_LEN]);
@@ -96,6 +100,60 @@ macro_rules! impl_block_cipher_with_gcm_mode {
             }
 
             #[inline(always)]
+            #[allow(unused_variables)]
+            fn ctr32x6_next(nonce_block: &[u8; 16], ectr: &mut [[u8; 16]; 6], counter: &mut u32) {
+                #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+                {
+                    let ret = Self::ctr32x6_(&ectr[ectr.len() - 1], counter);
+                    ectr[0] = ret[0];
+                    ectr[1] = ret[1];
+                    ectr[2] = ret[2];
+                    ectr[3] = ret[3];
+                    ectr[4] = ret[4];
+                    ectr[5] = ret[5];
+                }
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                {
+                    unsafe {
+                        let mut ctr0_xmm;
+                        let mut ctr1_xmm;
+                        let mut ctr2_xmm;
+                        let mut ctr3_xmm;
+                        let mut ctr4_xmm;
+                        let mut ctr5_xmm;
+
+                        ctr5_xmm = _mm_loadu_si128(ectr[5].as_ptr() as _);
+                        
+                        let bswap_shuffle = _mm_set_epi8(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+                        ctr5_xmm = _mm_shuffle_epi8(ctr5_xmm, bswap_shuffle);
+
+                        let delta = _mm_setr_epi32(1, 0, 0, 0);
+                        ctr0_xmm = _mm_add_epi32(ctr5_xmm, delta);
+                        ctr1_xmm = _mm_add_epi32(ctr0_xmm, delta);
+                        ctr2_xmm = _mm_add_epi32(ctr1_xmm, delta);
+                        ctr3_xmm = _mm_add_epi32(ctr2_xmm, delta);
+                        ctr4_xmm = _mm_add_epi32(ctr3_xmm, delta);
+                        ctr5_xmm = _mm_add_epi32(ctr4_xmm, delta);
+
+                        ctr0_xmm = _mm_shuffle_epi8(ctr0_xmm, bswap_shuffle);
+                        ctr1_xmm = _mm_shuffle_epi8(ctr1_xmm, bswap_shuffle);
+                        ctr2_xmm = _mm_shuffle_epi8(ctr2_xmm, bswap_shuffle);
+                        ctr3_xmm = _mm_shuffle_epi8(ctr3_xmm, bswap_shuffle);
+                        ctr4_xmm = _mm_shuffle_epi8(ctr4_xmm, bswap_shuffle);
+                        ctr5_xmm = _mm_shuffle_epi8(ctr5_xmm, bswap_shuffle);
+
+                        _mm_storeu_si128(ectr[0].as_mut_ptr() as _, ctr0_xmm);
+                        _mm_storeu_si128(ectr[1].as_mut_ptr() as _, ctr1_xmm);
+                        _mm_storeu_si128(ectr[2].as_mut_ptr() as _, ctr2_xmm);
+                        _mm_storeu_si128(ectr[3].as_mut_ptr() as _, ctr3_xmm);
+                        _mm_storeu_si128(ectr[4].as_mut_ptr() as _, ctr4_xmm);
+                        _mm_storeu_si128(ectr[5].as_mut_ptr() as _, ctr5_xmm);
+                    }
+                    *counter = counter.wrapping_add(6);
+                }
+            }
+
+            #[inline(always)]
             fn ctr32_4x4_(nonce_block: &[u8; 16], counter: &mut u32) -> [[u8; 64]; 4] {
                 let mut ctr = [nonce_block.clone(); 16];
 
@@ -107,6 +165,64 @@ macro_rules! impl_block_cipher_with_gcm_mode {
                 *counter = counter.wrapping_add(16);
                 unsafe {
                     core::mem::transmute::<[[u8; 16]; 16], [[u8; 64]; 4]>(ctr)
+                }
+            }
+
+            #[inline(always)]
+            #[allow(unused_variables)]
+            fn ctr32_4x4_next(nonce_block: &[u8; 16], ctrs: &mut [[u8; 64]; 4], counter: &mut u32) {
+                #[cfg(not(all(any(target_arch = "x86", target_arch = "x86_64"), avx512_feature)))]
+                {
+                    let ret = Self::ctr32_4x4_(nonce_block, counter);
+                    ctrs[0] = ret[0];
+                    ctrs[1] = ret[1];
+                    ctrs[2] = ret[2];
+                    ctrs[3] = ret[3];
+                }
+                #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), avx512_feature))]
+                {
+                    unsafe {
+                        let mut ctr_zmm0;
+                        let mut ctr_zmm1;
+                        let mut ctr_zmm2;
+                        let mut ctr_zmm3 = _mm512_loadu_si512(ctrs[3].as_ptr() as _);
+
+                        if counter.wrapping_add(16) >> 8 == counter.wrapping_sub(3) >> 8 {
+                            let delta = _mm512_broadcast_i32x4(_mm_set_epi32(0x4000000, 0, 0, 0));
+                            ctr_zmm0 = _mm512_add_epi32(ctr_zmm3, delta);
+                            ctr_zmm1 = _mm512_add_epi32(ctr_zmm0, delta);
+                            ctr_zmm2 = _mm512_add_epi32(ctr_zmm1, delta);
+                            ctr_zmm3 = _mm512_add_epi32(ctr_zmm2, delta);
+                        } else {
+                            #[cold]
+                            #[inline(always)]
+                            fn cold() {}
+                            cold();
+
+                            let bswap_shuffle = _mm512_broadcast_i32x4(_mm_set_epi8(
+                                0, 1, 2, 3, 4, 5, 6, 7,
+                                8, 9, 10, 11, 12, 13, 14, 15
+                            ));
+                            ctr_zmm3 = _mm512_shuffle_epi8(ctr_zmm3, bswap_shuffle);
+
+                            let delta = _mm512_broadcast_i32x4(_mm_setr_epi32(4, 0, 0, 0));
+                            ctr_zmm0 = _mm512_add_epi32(ctr_zmm3, delta);
+                            ctr_zmm1 = _mm512_add_epi32(ctr_zmm0, delta);
+                            ctr_zmm2 = _mm512_add_epi32(ctr_zmm1, delta);
+                            ctr_zmm3 = _mm512_add_epi32(ctr_zmm2, delta);
+
+                            ctr_zmm0 = _mm512_shuffle_epi8(ctr_zmm0, bswap_shuffle);
+                            ctr_zmm1 = _mm512_shuffle_epi8(ctr_zmm1, bswap_shuffle);
+                            ctr_zmm2 = _mm512_shuffle_epi8(ctr_zmm2, bswap_shuffle);
+                            ctr_zmm3 = _mm512_shuffle_epi8(ctr_zmm3, bswap_shuffle);
+                        }
+
+                        _mm512_storeu_si512(ctrs[0].as_mut_ptr() as _, ctr_zmm0);
+                        _mm512_storeu_si512(ctrs[1].as_mut_ptr() as _, ctr_zmm1);
+                        _mm512_storeu_si512(ctrs[2].as_mut_ptr() as _, ctr_zmm2);
+                        _mm512_storeu_si512(ctrs[3].as_mut_ptr() as _, ctr_zmm3);
+                        *counter = counter.wrapping_add(16);
+                    }
                 }
             }
         }
@@ -251,8 +367,8 @@ macro_rules! impl_block_cipher_with_gcm_mode {
                         ctrs,
                         &mut blocks,
                     );
-
-                    ctrs = Self::ctr32_4x4_(&mut counter_block, &mut counter);
+                    
+                    Self::ctr32_4x4_next(&counter_block, &mut ctrs, &mut counter);
                     unsafe {
                         crate::const_loop!(i, 0, 4, {
                             *slice_to_array_at_mut(plaintext_in_ciphertext_out, start + i * Self::BLOCK_LEN * 4) = blocks[i];
@@ -274,40 +390,7 @@ macro_rules! impl_block_cipher_with_gcm_mode {
 
                         blocks = next_blocks;
 
-                        #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
-                        {
-                            ctrs = Self::ctr32_4x4_(&counter_block, &mut counter);
-                        }
-
-                        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-                        { unsafe {
-                            let mut ctr_zmm0;
-                            let mut ctr_zmm1;
-                            let mut ctr_zmm2;
-                            let mut ctr_zmm3 = _mm512_loadu_si512(ctrs[3].as_ptr() as _);
-
-                            let bswap_shuffle = _mm512_broadcast_i32x4(_mm_set_epi8(
-                                0, 1, 2, 3, 4, 5, 6, 7,
-                                8, 9, 10, 11, 12, 13, 14, 15
-                            ));
-                            ctr_zmm3 = _mm512_shuffle_epi8(ctr_zmm3, bswap_shuffle);
-
-                            ctr_zmm0 = _mm512_add_epi32(ctr_zmm3, _mm512_broadcast_i32x4(_mm_setr_epi32(4, 0, 0, 0)));
-                            ctr_zmm1 = _mm512_add_epi32(ctr_zmm0, _mm512_broadcast_i32x4(_mm_setr_epi32(4, 0, 0, 0)));
-                            ctr_zmm2 = _mm512_add_epi32(ctr_zmm1, _mm512_broadcast_i32x4(_mm_setr_epi32(4, 0, 0, 0)));
-                            ctr_zmm3 = _mm512_add_epi32(ctr_zmm2, _mm512_broadcast_i32x4(_mm_setr_epi32(4, 0, 0, 0)));
-
-                            ctr_zmm0 = _mm512_shuffle_epi8(ctr_zmm0, bswap_shuffle);
-                            ctr_zmm1 = _mm512_shuffle_epi8(ctr_zmm1, bswap_shuffle);
-                            ctr_zmm2 = _mm512_shuffle_epi8(ctr_zmm2, bswap_shuffle);
-                            ctr_zmm3 = _mm512_shuffle_epi8(ctr_zmm3, bswap_shuffle);
-
-                            _mm512_storeu_si512(ctrs[0].as_mut_ptr() as _, ctr_zmm0);
-                            _mm512_storeu_si512(ctrs[1].as_mut_ptr() as _, ctr_zmm1);
-                            _mm512_storeu_si512(ctrs[2].as_mut_ptr() as _, ctr_zmm2);
-                            _mm512_storeu_si512(ctrs[3].as_mut_ptr() as _, ctr_zmm3);
-                            counter += 16;
-                        }}
+                        Self::ctr32_4x4_next(&counter_block, &mut ctrs, &mut counter);
 
                         unsafe {
                             crate::const_loop!(i, 0, 4, {
@@ -326,7 +409,8 @@ macro_rules! impl_block_cipher_with_gcm_mode {
 
                 #[cfg(ghash_block_x6)]
                 if !<$cipher>::IS_SOFT && !<$ghash>::IS_SOFT && plen_remain >= Self::BLOCK_LEN * 6 {
-                    let [mut ectr0, mut ectr1, mut ectr2, mut ectr3, mut ectr4, mut ectr5] = Self::ctr32x6_(&counter_block, &mut counter);
+                    // let [mut ectr0, mut ectr1, mut ectr2, mut ectr3, mut ectr4, mut ectr5] = Self::ctr32x6_(&counter_block, &mut counter);
+                    let mut ectr = Self::ctr32x6_(&mut counter_block, &mut counter);
 
                     let mut block0 = unsafe {slice_to_array_at(plaintext_in_ciphertext_out, start).clone()};
                     let mut block1 = unsafe {slice_to_array_at(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN).clone()};
@@ -336,12 +420,7 @@ macro_rules! impl_block_cipher_with_gcm_mode {
                     let mut block5 = unsafe {slice_to_array_at(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 5).clone()};
 
                     self.cipher.encrypt_6_blocks_xor(
-                        [&ectr0,
-                        &ectr1,
-                        &ectr2,
-                        &ectr3,
-                        &ectr4,
-                        &ectr5],
+                        std::array::from_fn(|i| &ectr[i]),
                         [&mut block0,
                         &mut block1,
                         &mut block2,
@@ -350,7 +429,7 @@ macro_rules! impl_block_cipher_with_gcm_mode {
                         &mut block5],
                     );
 
-                    [ectr0, ectr1, ectr2, ectr3, ectr4, ectr5] = Self::ctr32x6_(&counter_block, &mut counter);
+                    Self::ctr32x6_next(&counter_block, &mut ectr, &mut counter);
 
                     unsafe {
                         *slice_to_array_at_mut(plaintext_in_ciphertext_out, start) = block0;
@@ -382,12 +461,7 @@ macro_rules! impl_block_cipher_with_gcm_mode {
                         block5 = next_block5;
 
                         self.cipher.encrypt_6_blocks_xor(
-                            [&ectr0,
-                            &ectr1,
-                            &ectr2,
-                            &ectr3,
-                            &ectr4,
-                            &ectr5,],
+                            std::array::from_fn(|i| &ectr[i]),
                             [&mut block0,
                             &mut block1,
                             &mut block2,
@@ -395,8 +469,7 @@ macro_rules! impl_block_cipher_with_gcm_mode {
                             &mut block4,
                             &mut block5,],
                         );
-
-                        [ectr0, ectr1, ectr2, ectr3, ectr4, ectr5] = Self::ctr32x6_(&counter_block, &mut counter);
+                        Self::ctr32x6_next(&counter_block, &mut ectr, &mut counter);
 
                         unsafe {
                             *slice_to_array_at_mut(plaintext_in_ciphertext_out, start) = block0;
@@ -779,6 +852,8 @@ cfg_if::cfg_if!{
         use crate::crypto::aes::x86_avx::AES128 as AES128AVX;
         use crate::crypto::ghash::x86_avx::GHash as GHashAVX;
         impl_block_cipher_with_gcm_mode!(AES128GcmAVX, AES128AVX, GHashAVX, 16, "avx,aes,pclmulqdq");
+        use crate::crypto::ghash::x86_avx2::GHash as GHashAVX2;
+        impl_block_cipher_with_gcm_mode!(AES128GcmAVX2, AES128AVX, GHashAVX2, 16, "avx2,aes,pclmulqdq,bmi1,bmi2,movbe");
         #[cfg(avx512_feature)]
         impl_block_cipher_with_gcm_mode!(AES128GcmAVX512, "avx512", crate::crypto::aes::x86_avx512::AES128, crate::crypto::ghash::x86_avx512::GHash, 16, "avx512f,avx512bw,avx512vl,vpclmulqdq,vaes");
     } else if #[cfg(target_arch = "aarch64")] {
@@ -797,9 +872,9 @@ cfg_if::cfg_if!{
 
 cfg_if::cfg_if! {
     if #[cfg(all(avx512_feature, any(target_arch = "x86", target_arch = "x86_64"), target_feature = "vaes", target_feature = "vpclmulqdq", target_feature = "avx512f", target_feature = "avx512vl", target_feature = "avx512bw"))] {
-        pub type AES128Gcm = AES128GcmAVX512;
-    } else if #[cfg(all(not(avx512_feature), any(target_arch = "x86", target_arch = "x86_64"), target_feature = "avx", target_feature = "aes", target_feature = "pclmulqdq"))] {
-        pub type AES128Gcm = AES128GcmAVX;
+        pub type AES128Gcm = AES128GcmDynamic;
+    } else if #[cfg(all(not(avx512_feature), any(target_arch = "x86", target_arch = "x86_64"), target_feature = "avx2", target_feature = "aes", target_feature = "pclmulqdq", target_feature = "bmi1", target_feature = "bmi2", target_feature = "movbe"))] {
+        pub type AES128Gcm = AES128GcmAVX2;
     } else if #[cfg(all(target_arch = "aarch64", target_feature = "neon", target_feature = "aes"))] {
         pub type AES128Gcm = AES128GcmHW;
     } else if #[cfg(all(target_arch = "arm", target_feature = "neon", target_feature = "aes"))] {
@@ -811,21 +886,21 @@ cfg_if::cfg_if! {
 
 #[derive(Clone, Copy)]
 pub union AES128GcmDynamic {
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64"))]
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64", target_arch = "arm"))]
     hw: AES128GcmHW,
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     avx: AES128GcmAVX,
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    avx2: AES128GcmAVX2,
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     #[cfg(avx512_feature)]
     avx512: AES128GcmAVX512,
-    #[cfg(target_arch = "arm")]
-    hw: AES128GcmHW,
     #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
     neon: AES128GcmNEON,
     sw: AES128GcmSoft,
 }
 
-// x86: 0 - vex aes-ni, 1 - sse aes-ni, 2 - soft, 3 - avx512
+// x86: 0 - vex aes-ni, 1 - sse aes-ni, 2 - soft, 3 - avx512, 4 - avx2
 // arm/aarch64: 0 - aes-ni, 1 - neon, 2 - soft
 static mut AES_128_GCM_IDX: u32 = u32::MAX;
 
@@ -835,7 +910,6 @@ impl AES128GcmDynamic {
     pub const NONCE_LEN: usize = 12;
     pub const TAG_LEN: usize = 16;
 
-    #[inline(always)]
     pub fn new(key: [u8; Self::KEY_LEN]) -> Self {
         unsafe {
             if AES_128_GCM_IDX == u32::MAX {
@@ -858,6 +932,12 @@ impl AES128GcmDynamic {
                         "arm" => ("aes"),
                     ) {
                         AES_128_GCM_IDX = 0;
+                        if crate::is_hw_feature_detected!(
+                            "x86" => ("avx2", "bmi2", "movbe"),
+                            "x86_64" => ("avx2", "bmi2", "movbe"),
+                        ) {
+                            AES_128_GCM_IDX = 4;
+                        }
                     }
                 } else {
                     AES_128_GCM_IDX = 2;
@@ -875,6 +955,10 @@ impl AES128GcmDynamic {
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 1 => AES128GcmDynamic {
                     hw: AES128GcmHW::new(key),
+                },
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                4 => AES128GcmDynamic {
+                    avx2: AES128GcmAVX2::new(key),
                 },
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 #[cfg(avx512_feature)]
@@ -900,7 +984,7 @@ impl AES128GcmDynamic {
         Self::new(key)
     }
 
-    #[inline(always)]
+    #[inline(never)]
     pub fn encrypt_slice(&self, nonce: &[u8; NONCE_LEN], aad: &[u8], aead_pkt: &mut [u8]) {
         unsafe {
             match AES_128_GCM_IDX {
@@ -913,6 +997,8 @@ impl AES128GcmDynamic {
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 #[cfg(avx512_feature)]
                 3 => self.avx512.encrypt_slice(nonce, aad, aead_pkt),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                4 => self.avx2.encrypt_slice(nonce, aad, aead_pkt),
                 #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
                 1 => self.neon.encrypt_slice(nonce, aad, aead_pkt),
                 2 => self.sw.encrypt_slice(nonce, aad, aead_pkt),
@@ -921,7 +1007,7 @@ impl AES128GcmDynamic {
         }
     }
 
-    #[inline(always)]
+    #[inline(never)]
     pub fn decrypt_slice(&self, nonce: &[u8; NONCE_LEN], aad: &[u8], aead_pkt: &mut [u8]) -> bool {
         unsafe {
             match AES_128_GCM_IDX {
@@ -930,6 +1016,8 @@ impl AES128GcmDynamic {
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 #[cfg(avx512_feature)]
                 3 => self.avx512.decrypt_slice(nonce, aad, aead_pkt),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                4 => self.avx2.decrypt_slice(nonce, aad, aead_pkt),
                 #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
                 0 => self.hw.decrypt_slice(nonce, aad, aead_pkt),
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -942,7 +1030,7 @@ impl AES128GcmDynamic {
         }
     }
 
-    #[inline(always)]
+    #[inline(never)]
     pub fn encrypt_slice_detached(
         &self,
         nonce: &[u8; NONCE_LEN],
@@ -957,6 +1045,8 @@ impl AES128GcmDynamic {
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 #[cfg(avx512_feature)]
                 3 => self.avx512.encrypt_slice_detached(nonce, aad, plaintext_in_ciphertext_out, tag_out),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                4 => self.avx2.encrypt_slice_detached(nonce, aad, plaintext_in_ciphertext_out, tag_out),
                 #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
                 0 => self.hw.encrypt_slice_detached(nonce, aad, plaintext_in_ciphertext_out, tag_out),
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -969,7 +1059,7 @@ impl AES128GcmDynamic {
         }
     }
 
-    #[inline]
+    #[inline(never)]
     pub fn decrypt_slice_detached(
         &self,
         nonce: &[u8; NONCE_LEN],
@@ -991,6 +1081,8 @@ impl AES128GcmDynamic {
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 #[cfg(avx512_feature)]
                 3 => self.avx512.decrypt_slice_detached(nonce, aad, ciphertext_in_plaintext_out, tag_in),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                4 => self.avx2.decrypt_slice_detached(nonce, aad, ciphertext_in_plaintext_out, tag_in),
                 _ => unreachable!(),
             }
         }
