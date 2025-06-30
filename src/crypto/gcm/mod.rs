@@ -379,6 +379,15 @@ macro_rules! impl_block_cipher_with_gcm_mode {
                     plen_remain -= Self::BLOCK_LEN * 4 * 4;
 
                     while plen_remain >= Self::BLOCK_LEN * 4 * 4 {
+                        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                        { unsafe {
+                            let ptr = plaintext_in_ciphertext_out.as_ptr().add(start).add(Self::BLOCK_LEN * 4 * 4);
+                            _mm_prefetch(ptr as *const _, _MM_HINT_T0);
+                            _mm_prefetch(ptr.add(64) as *const _, _MM_HINT_T0);
+                            _mm_prefetch(ptr.add(128) as *const _, _MM_HINT_T0);
+                            _mm_prefetch(ptr.add(192) as *const _, _MM_HINT_T0);
+                            _mm_prefetch(ptr.add(256) as *const _, _MM_HINT_T0);
+                        }}
                         let mut next_blocks = [
                             unsafe {slice_to_array_at_mut(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 4 * 0).clone()},
                             unsafe {slice_to_array_at_mut(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 4 * 1).clone()},
@@ -444,6 +453,13 @@ macro_rules! impl_block_cipher_with_gcm_mode {
                     plen_remain -= Self::BLOCK_LEN * 6;
 
                     while plen_remain >= Self::BLOCK_LEN * 6 {
+                        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                        { unsafe {
+                            let ptr = plaintext_in_ciphertext_out.as_ptr().add(start).add(Self::BLOCK_LEN * 6);
+                            _mm_prefetch(ptr as _, _MM_HINT_T0);
+                            _mm_prefetch(ptr.add(64) as *const _, _MM_HINT_T0);
+                            _mm_prefetch(ptr.add(128) as *const _, _MM_HINT_T0);
+                        }}
                         let next_block0 = unsafe {slice_to_array_at(plaintext_in_ciphertext_out, start).clone()};
                         let next_block1 = unsafe {slice_to_array_at(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN).clone()};
                         let next_block2 = unsafe {slice_to_array_at(plaintext_in_ciphertext_out, start + Self::BLOCK_LEN * 2).clone()};
@@ -872,7 +888,7 @@ cfg_if::cfg_if!{
 
 cfg_if::cfg_if! {
     if #[cfg(all(avx512_feature, any(target_arch = "x86", target_arch = "x86_64"), target_feature = "vaes", target_feature = "vpclmulqdq", target_feature = "avx512f", target_feature = "avx512vl", target_feature = "avx512bw"))] {
-        pub type AES128Gcm = AES128GcmDynamic;
+        pub type AES128Gcm = AES128GcmAVX512;
     } else if #[cfg(all(not(avx512_feature), any(target_arch = "x86", target_arch = "x86_64"), target_feature = "avx2", target_feature = "aes", target_feature = "pclmulqdq", target_feature = "bmi1", target_feature = "bmi2", target_feature = "movbe"))] {
         pub type AES128Gcm = AES128GcmAVX2;
     } else if #[cfg(all(target_arch = "aarch64", target_feature = "neon", target_feature = "aes"))] {
