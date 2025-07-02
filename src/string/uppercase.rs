@@ -80,38 +80,39 @@ unsafe fn uppercase_ptr_avx2(mut out: *mut i8, mut in_ptr: *const i8, mut len: u
     uppercase_ptr(out, in_ptr, len);
 }
 
-// #[cfg(all(target_feature = "avx512f", target_feature = "avx512bw"))]
-// #[inline]
-// unsafe fn uppercase_avx512(mut s: String) -> String {
-//     let mut ptr = s.as_mut_ptr() as *mut i8;
-//     let mut len = s.len();
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[target_feature(enable = "avx512f", enable = "avx512bw")]
+#[cfg(avx512_feature)]
+#[inline]
+unsafe fn uppercase_ptr_avx512(mut out: *mut i8, in_ptr: *const i8, mut len: usize) {
+    let mut ptr = in_ptr;
 
-//     let ascii_a = _mm512_set1_epi8(b'a' as i8);
-//     let ascii_z = _mm512_set1_epi8(b'z' as i8);
-//     let add = _mm512_set1_epi8(b'a' as i8 - b'A' as i8);
+    let ascii_a = _mm512_set1_epi8(b'a' as i8);
+    let ascii_z = _mm512_set1_epi8(b'z' as i8);
+    let add = _mm512_set1_epi8(b'a' as i8 - b'A' as i8);
 
-//     const BLOCK_SIZE: usize = std::mem::size_of::<__m512i>();
+    const BLOCK_SIZE: usize = std::mem::size_of::<__m512i>();
 
-//     while len >= BLOCK_SIZE {
-//         let c = _mm512_loadu_si512(ptr as _);
-//         let ge_a = _mm512_cmpge_epi8_mask(c, ascii_a);
-//         let le_z = _mm512_cmple_epi8_mask(c, ascii_z);
-//         let is_upper = _kand_mask64(ge_a, le_z);
-//         let result = _mm512_mask_sub_epi8(c, is_upper, c, add);
-//         _mm512_storeu_si512(ptr, result);
-//         ptr = ptr.add(BLOCK_SIZE);
-//         len -= BLOCK_SIZE;
-//     }
-//     {
-//         let c = _mm512_maskz_loadu_epi8(_mm512_setzero_si512(), (1 << len) - 1, ptr);
-//         let ge_a = _mm512_cmpge_epi8_mask(c, ascii_a);
-//         let le_z = _mm512_cmple_epi8_mask(c, ascii_z);
-//         let is_upper = _kand_mask64(ge_a, le_z);
-//         let result = _mm512_mask_sub_epi8(c, is_upper, c, add);
-//         _mm512_mask_storeu_epi8(ptr, (1 << len) - 1, result);
-//     }
-//     s
-// }
+    while len >= BLOCK_SIZE {
+        let c = _mm512_loadu_si512(ptr as _);
+        let ge_a = _mm512_cmpge_epi8_mask(c, ascii_a);
+        let le_z = _mm512_cmple_epi8_mask(c, ascii_z);
+        let is_upper = _kand_mask64(ge_a, le_z);
+        let result = _mm512_mask_sub_epi8(c, is_upper, c, add);
+        _mm512_storeu_si512(out as _, result);
+        ptr = ptr.add(BLOCK_SIZE);
+        out = out.add(BLOCK_SIZE);
+        len -= BLOCK_SIZE;
+    }
+    {
+        let c = _mm512_maskz_loadu_epi8((1 << len) - 1, ptr);
+        let ge_a = _mm512_cmpge_epi8_mask(c, ascii_a);
+        let le_z = _mm512_cmple_epi8_mask(c, ascii_z);
+        let is_upper = _kand_mask64(ge_a, le_z);
+        let result = _mm512_mask_sub_epi8(c, is_upper, c, add);
+        _mm512_mask_storeu_epi8(out, (1 << len) - 1, result);
+    }
+}
 
 #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
 #[target_feature(enable = "neon")]
@@ -136,9 +137,12 @@ unsafe fn uppercase_ptr_neon(mut out: *mut i8, mut in_ptr: *const i8, mut len: u
     uppercase_ptr(out, in_ptr, len);
 }
 
-#[inline]
+#[cfg_attr(not(target_arch = "aarch64"), inline(never))]
 pub unsafe fn uppercase_inplace(s: &mut [u8]) {
     match super::lowercase::case_idx() {
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        #[cfg(avx512_feature)]
+        3 => uppercase_ptr_avx512(s.as_mut_ptr() as _, s.as_ptr() as _, s.len()),
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         2 => uppercase_ptr_avx2(s.as_mut_ptr() as _, s.as_ptr() as _, s.len()),
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -150,10 +154,13 @@ pub unsafe fn uppercase_inplace(s: &mut [u8]) {
     }
 }
 
-#[inline]
+#[cfg_attr(not(target_arch = "aarch64"), inline(never))]
 pub unsafe fn uppercase_into(out: &mut [i8], input: &[i8]) {
     assert!(out.len() >= input.len(), "Output buffer must be at least as long as input buffer");
     match super::lowercase::case_idx() {
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        #[cfg(avx512_feature)]
+        3 => uppercase_ptr_avx512(out.as_mut_ptr() as _, input.as_ptr() as _, input.len()),
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         2 => uppercase_ptr_avx2(out.as_mut_ptr() as _, input.as_ptr() as _, input.len()),
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -173,6 +180,13 @@ mod tests {
         s
     }
 
+    fn str_opt_with_impl(fn_ptr: unsafe fn(*mut i8, *const i8, usize), mut s: String) -> String {
+        let ptr = s.as_mut_ptr() as *mut i8;
+        let len = s.len();
+        unsafe { fn_ptr(ptr, s.as_ptr() as _, len); }
+        s
+    }
+
     #[test]
     fn test_uppercase() {
         let s = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".to_string();
@@ -184,21 +198,29 @@ mod tests {
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         if std::arch::is_x86_feature_detected!("sse2") {
                 let g = uppercase_general(s.clone());
-                let l = uppercase(s.clone());
+            let l = str_opt_with_impl(uppercase_ptr_sse2, s.clone());
                 assert_eq!(g, l);
         }
 
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         if std::arch::is_x86_feature_detected!("avx2") {
                 let g = uppercase_general(s.clone());
-                let l = uppercase(s.clone());
+            let l = str_opt_with_impl(uppercase_ptr_avx2, s.clone());
                 assert_eq!(g, l);
+        }
+
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        #[cfg(avx512_feature)]
+        if std::arch::is_x86_feature_detected!("avx512f") && std::arch::is_x86_feature_detected!("avx512bw") {
+            let g = uppercase_general(s.clone());
+            let l = str_opt_with_impl(uppercase_ptr_avx512, s.clone());
+            assert_eq!(g, l);
         }
 
         #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
         if crate::is_hw_feature_detected!("neon") {
             let g = uppercase_general(s.clone());
-            let l = uppercase(s.clone());
+            let l = str_opt_with_impl(uppercase_ptr_neon, s.clone());
             assert_eq!(g, l);
         }
     }
