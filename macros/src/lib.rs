@@ -42,13 +42,16 @@ pub fn loop_unroll(attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut output = TokenStream::new();
 
     if !no_need_idx_var {
+        // output #[allow(unused)]
+        output.extend(allow_attr("unused"));
+
         // output token "let" "mut" "idx_var_name" "=" "idx_start"";"
-        output.extend(TokenStream::from(TokenTree::Ident(Ident::new("let", Span::call_site()))));
-        output.extend(TokenStream::from(TokenTree::Ident(Ident::new("mut", Span::call_site()))));
-        output.extend(TokenStream::from(TokenTree::Ident(idx_var_name.clone())));
-        output.extend(TokenStream::from(TokenTree::Punct(Punct::new('=', Spacing::Alone))));
-        output.extend(TokenStream::from(TokenTree::Literal(idx_start)));
-        output.extend(TokenStream::from(TokenTree::Punct(Punct::new(';', Spacing::Alone))));
+        output.extend(std::iter::once(TokenTree::Ident(Ident::new("let", Span::call_site()))));
+        output.extend(std::iter::once(TokenTree::Ident(Ident::new("mut", Span::call_site()))));
+        output.extend(std::iter::once(TokenTree::Ident(idx_var_name.clone())));
+        output.extend(std::iter::once(TokenTree::Punct(Punct::new('=', Spacing::Alone))));
+        output.extend(std::iter::once(TokenTree::Literal(idx_start)));
+        output.extend(std::iter::once(TokenTree::Punct(Punct::new(';', Spacing::Alone))));
     }
 
     // parse loop_count as usize
@@ -73,12 +76,19 @@ pub fn loop_unroll(attr: TokenStream, item: TokenStream) -> TokenStream {
             output.extend(TokenStream::from(tt));
         }
         if !no_need_idx_var {
+            // output #[allow(unused_assignments)]
+            output.extend(allow_attr("unused_assignments"));
+
             // output token "idx_var_name" "+=" "loop_step"";"
-            output.extend(TokenStream::from(TokenTree::Ident(idx_var_name.clone())));
-            output.extend(TokenStream::from(TokenTree::Punct(Punct::new('+', Spacing::Joint))));
-            output.extend(TokenStream::from(TokenTree::Punct(Punct::new('=', Spacing::Alone))));
-            output.extend(TokenStream::from(TokenTree::Literal(loop_step.clone())));
-            output.extend(TokenStream::from(TokenTree::Punct(Punct::new(';', Spacing::Alone))));
+            let mut assign_block = TokenStream::new();
+            assign_block.extend(std::iter::once(TokenTree::Ident(idx_var_name.clone())));
+            assign_block.extend(std::iter::once(TokenTree::Punct(Punct::new('+', Spacing::Joint))));
+            assign_block.extend(std::iter::once(TokenTree::Punct(Punct::new('=', Spacing::Alone))));
+            assign_block.extend(std::iter::once(TokenTree::Literal(loop_step.clone())));
+            assign_block.extend(std::iter::once(TokenTree::Punct(Punct::new(';', Spacing::Alone))));
+
+            // wrap with braces
+            output.extend(std::iter::once(TokenTree::Group(Group::new(Delimiter::Brace, assign_block))));
         }
     }
 
@@ -182,6 +192,8 @@ pub fn const_loop(item: TokenStream) -> TokenStream {
     let mut output = TokenStream::new();
 
     if !no_need_idx_var {
+        // output #[allow(unused)]
+        output.extend(allow_attr("unused"));
         // output token "let" "mut" "idx_var_name" "=" "idx_start"";"
         output.extend(TokenStream::from(TokenTree::Ident(Ident::new("let", Span::call_site()))));
         output.extend(TokenStream::from(TokenTree::Ident(Ident::new("mut", Span::call_site()))));
@@ -197,12 +209,19 @@ pub fn const_loop(item: TokenStream) -> TokenStream {
     for _ in 0..(loop_count - 1) {
         output.extend(TokenStream::from(TokenTree::Group(block.clone())));
         if !no_need_idx_var {
+            // output #[allow(unused_assignments)]
+            output.extend(allow_attr("unused_assignments"));
+
             // output token "idx_var_name" "+=" "loop_step"";"
-            output.extend(TokenStream::from(TokenTree::Ident(idx_var_name.clone())));
-            output.extend(TokenStream::from(TokenTree::Punct(Punct::new('+', Spacing::Joint))));
-            output.extend(TokenStream::from(TokenTree::Punct(Punct::new('=', Spacing::Alone))));
-            output.extend(TokenStream::from(TokenTree::Literal(loop_step.clone())));
-            output.extend(TokenStream::from(TokenTree::Punct(Punct::new(';', Spacing::Alone))));
+            let mut assign_block = TokenStream::new();
+            assign_block.extend(std::iter::once(TokenTree::Ident(idx_var_name.clone())));
+            assign_block.extend(std::iter::once(TokenTree::Punct(Punct::new('+', Spacing::Joint))));
+            assign_block.extend(std::iter::once(TokenTree::Punct(Punct::new('=', Spacing::Alone))));
+            assign_block.extend(std::iter::once(TokenTree::Literal(loop_step.clone())));
+            assign_block.extend(std::iter::once(TokenTree::Punct(Punct::new(';', Spacing::Alone))));
+
+            // wrap with braces
+            output.extend(std::iter::once(TokenTree::Group(Group::new(Delimiter::Brace, assign_block))));
         }
     }
 
@@ -210,5 +229,22 @@ pub fn const_loop(item: TokenStream) -> TokenStream {
 
     output = TokenStream::from(TokenTree::Group(Group::new(Delimiter::Brace, output)));
 
+    output
+}
+
+fn allow_attr(name: &str) -> TokenStream {
+    let mut output = TokenStream::from(TokenTree::Punct(Punct::new('#', Spacing::Joint)));
+
+    let mut attr_inner = TokenStream::new();
+    attr_inner.extend(std::iter::once(TokenTree::Ident(Ident::new("allow", Span::call_site()))));
+
+    let mut paren_ts = TokenStream::new();
+    paren_ts.extend(std::iter::once(TokenTree::Ident(Ident::new(name, Span::call_site()))));
+    let paren = Group::new(Delimiter::Parenthesis, paren_ts);
+    attr_inner.extend(std::iter::once(TokenTree::Group(paren)));
+
+    let bracket = Group::new(Delimiter::Bracket, attr_inner);
+
+    output.extend(std::iter::once(TokenTree::Group(bracket)));
     output
 }
