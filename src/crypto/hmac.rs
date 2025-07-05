@@ -79,14 +79,31 @@ cfg_if::cfg_if!{
         impl_hmac_with_hasher!(HmacSha1AVX, super::hash::sha1::x86_avx::Sha1, 20, "avx");
         impl_hmac_with_hasher!(HmacSha1Bmi, super::hash::sha1::x86_bmi::Sha1, 20, "bmi1,bmi2");
         impl_hmac_with_hasher!(HmacSha1NI, super::hash::sha1::x86::Sha1, 20, "sse2,ssse3,sse4.1,sha");
+
+        cfg_if::cfg_if! {
+            if #[cfg(all(target_feature = "sha", target_feature = "sse2", target_feature = "ssse3", target_feature = "sse4.1"))] {
+                pub type HmacSha1 = HmacSha1NI;
+            } else {
+                pub type HmacSha1 = HmacSha1Dynamic;
+            }
+        }
     } else if #[cfg(any(target_arch = "aarch64", target_arch = "arm"))] {
         impl_hmac_with_hasher!(HmacSha1NI, super::hash::sha1::arm::Sha1, 20, "sha2");
         impl_hmac_with_hasher!(HmacSha1NEON, super::hash::sha1::arm_ni::Sha1, 20, "neon");
+        cfg_if::cfg_if! {
+            if #[cfg(all(target_feature = "sha2", target_feature = "neon"))] {
+                pub type HmacSha1 = HmacSha1NI;
+            } else {
+                pub type HmacSha1 = HmacSha1Dynamic;
+            }
+        }
+    } else {
+        pub type HmacSha1 = HmacSha1Soft;
     }
 }
 
 #[derive(Clone, Copy)]
-pub union HmacSha1 {
+pub union HmacSha1Dynamic {
     soft: HmacSha1Soft,
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     x86_sse: HmacSha1SSE,
@@ -107,7 +124,7 @@ pub union HmacSha1 {
 use super::hash::sha1::dynamic::IDX as HMAC_SHA1_IDX;
 use super::hash::sha1::dynamic::init_idx as init_hmac_sha1_idx;
 
-impl HmacSha1 {
+impl HmacSha1Dynamic {
     pub const BLOCK_LEN: usize = 64;
     pub const TAG_LEN: usize = 20;
 
