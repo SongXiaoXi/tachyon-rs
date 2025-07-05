@@ -120,7 +120,7 @@ impl Poly1305 {
     }
 
     #[inline(always)]
-    pub fn update_16_blocks(&mut self, m: &[u8; 256]) {
+    pub(crate) fn update_16_blocks(&mut self, m: &[u8; 256]) {
         #[crate::loop_unroll(i, 0, 16, 16)]
         fn loop_unroll() {
             let chunk = unsafe { crate::utils::slice_to_array_at(m, i) };
