@@ -318,6 +318,7 @@ impl Chacha20Poly1305Dynamic {
                         "x86_64" => ("avx2"),
                     ) {
                         idx = 3;
+                        /*
                         #[cfg(feature = "nightly")]
                         if crate::is_hw_feature_detected!(
                             "x86" => ("avx512f","avx512dq"),
@@ -325,6 +326,7 @@ impl Chacha20Poly1305Dynamic {
                         ) {
                             idx = 4;
                         }
+                        */
                     }
                 }
             } else {
