@@ -280,9 +280,6 @@ pub union Chacha20Poly1305Dynamic {
     avx: Chacha20Poly1305AVX,
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     avx2: Chacha20Poly1305AVX2,
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    #[cfg(feature = "nightly")]
-    avx512: Chacha20Poly1305AVX512,
     #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
     neon: Chacha20Poly1305Neon,
 }
