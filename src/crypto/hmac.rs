@@ -88,8 +88,8 @@ cfg_if::cfg_if!{
             }
         }
     } else if #[cfg(any(target_arch = "aarch64", target_arch = "arm"))] {
-        impl_hmac_with_hasher!(HmacSha1NI, super::hash::sha1::arm::Sha1, 20, "sha2");
-        impl_hmac_with_hasher!(HmacSha1NEON, super::hash::sha1::arm_ni::Sha1, 20, "neon");
+        impl_hmac_with_hasher!(HmacSha1NI, super::hash::sha1::arm_ni::Sha1, 20, "sha2");
+        impl_hmac_with_hasher!(HmacSha1NEON, super::hash::sha1::arm::Sha1, 20, "neon");
         cfg_if::cfg_if! {
             if #[cfg(all(target_feature = "sha2", target_feature = "neon"))] {
                 pub type HmacSha1 = HmacSha1NI;
