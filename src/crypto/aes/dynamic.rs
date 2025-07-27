@@ -1,3 +1,5 @@
+use std::mem::ManuallyDrop;
+
 use crate::is_hw_feature_detected;
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -9,11 +11,10 @@ use super::arm as hw;
 
 use super::soft;
 
-#[derive(Clone, Copy)]
 pub union AES128 {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64", target_arch = "arm"))]
     ni: hw::AES128,
-    soft: soft::AES128,
+    soft: ManuallyDrop<soft::AES128>,
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     sse: x86::AES128,
 }
@@ -55,7 +56,7 @@ impl AES128 {
 
             match IDX {
                 0 => AES128 {
-                    soft: soft::AES128::new(key),
+                    soft: ManuallyDrop::new(soft::AES128::new(key)),
                 },
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64", target_arch = "arm"))]
                 1 => AES128 {
@@ -150,6 +151,44 @@ impl AES128 {
                 1 => self.ni.decrypt_4_blocks(data0, data1, data2, data3),
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 2 => self.sse.decrypt_4_blocks(data0, data1, data2, data3),
+                _ => unreachable!(),
+            }
+        }
+    }
+}
+
+impl Clone for AES128 {
+    #[inline]
+    fn clone(&self) -> Self {
+        unsafe {
+            match IDX {
+                0 => AES128 {
+                    soft: self.soft.clone(),
+                },
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64", target_arch = "arm"))]
+                1 => AES128 {
+                    ni: self.ni,
+                },
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                2 => AES128 {
+                    sse: self.sse,
+                },
+                _ => unreachable!(),
+            }
+        }
+    }
+}
+
+impl Drop for AES128 {
+    #[inline]
+    fn drop(&mut self) {
+        unsafe {
+            match IDX {
+                0 => ManuallyDrop::drop(&mut self.soft),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64", target_arch = "arm"))]
+                1 => (),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                2 => (),
                 _ => unreachable!(),
             }
         }

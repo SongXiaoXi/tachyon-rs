@@ -4,6 +4,7 @@ use crate::utils::*;
 use core::arch::x86_64::*;
 #[cfg(target_arch = "x86")]
 use core::arch::x86::*;
+use std::mem::ManuallyDrop;
 
 pub const NONCE_LEN: usize = 96 / 8;
 pub struct Nonce(pub [u8; NONCE_LEN]);
@@ -26,7 +27,7 @@ const GCM_BLOCK_LEN: usize = 16;
 
 macro_rules! impl_block_cipher_with_gcm_mode {
     ($name:tt$(,$blocks_4x4:literal)?, $cipher:ty, $ghash:ty, $tlen:tt$(, $feature:literal)?) => {
-        #[derive(Clone, Copy)]
+        #[derive(Clone)]
         pub struct $name {
             cipher: $cipher,
             ghash: $ghash,
@@ -900,20 +901,19 @@ cfg_if::cfg_if! {
     }
 }
 
-#[derive(Clone, Copy)]
 pub union AES128GcmDynamic {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64", target_arch = "arm"))]
-    hw: AES128GcmHW,
+    hw: ManuallyDrop<AES128GcmHW>,
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    avx: AES128GcmAVX,
+    avx: ManuallyDrop<AES128GcmAVX>,
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    avx2: AES128GcmAVX2,
+    avx2: ManuallyDrop<AES128GcmAVX2>,
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     #[cfg(avx512_feature)]
-    avx512: AES128GcmAVX512,
+    avx512: ManuallyDrop<AES128GcmAVX512>,
     #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
-    neon: AES128GcmNEON,
-    sw: AES128GcmSoft,
+    neon: ManuallyDrop<AES128GcmNEON>,
+    sw: ManuallyDrop<AES128GcmSoft>,
 }
 
 // x86: 0 - vex aes-ni, 1 - sse aes-ni, 2 - soft, 3 - avx512, 4 - avx2
@@ -962,31 +962,31 @@ impl AES128GcmDynamic {
             match AES_128_GCM_IDX {
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 0 => AES128GcmDynamic {
-                    avx: AES128GcmAVX::new(key),
+                    avx: ManuallyDrop::new(AES128GcmAVX::new(key)),
                 },
                 #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
                 0 => AES128GcmDynamic {
-                    hw: AES128GcmHW::new(key),
+                    hw: ManuallyDrop::new(AES128GcmHW::new(key)),
                 },
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 1 => AES128GcmDynamic {
-                    hw: AES128GcmHW::new(key),
+                    hw: ManuallyDrop::new(AES128GcmHW::new(key)),
                 },
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 4 => AES128GcmDynamic {
-                    avx2: AES128GcmAVX2::new(key),
+                    avx2: ManuallyDrop::new(AES128GcmAVX2::new(key)),
                 },
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 #[cfg(avx512_feature)]
                 3 => AES128GcmDynamic {
-                    avx512: AES128GcmAVX512::new(key),
+                    avx512: ManuallyDrop::new(AES128GcmAVX512::new(key)),
                 },
                 #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
                 1 => AES128GcmDynamic {
-                    neon: AES128GcmNEON::new(key),
+                    neon: ManuallyDrop::new(AES128GcmNEON::new(key)),
                 },
                 2 => AES128GcmDynamic {
-                    sw: AES128GcmSoft::new(key),
+                    sw: ManuallyDrop::new(AES128GcmSoft::new(key)),
                 },
                 _ => unreachable!(),
             }
@@ -1099,6 +1099,31 @@ impl AES128GcmDynamic {
                 3 => self.avx512.decrypt_slice_detached(nonce, aad, ciphertext_in_plaintext_out, tag_in),
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 4 => self.avx2.decrypt_slice_detached(nonce, aad, ciphertext_in_plaintext_out, tag_in),
+                _ => unreachable!(),
+            }
+        }
+    }
+}
+
+impl Drop for AES128GcmDynamic {
+    #[inline]
+    fn drop(&mut self) {
+        unsafe {
+            match AES_128_GCM_IDX {
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                0 => ManuallyDrop::drop(&mut self.avx),
+                #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
+                0 => ManuallyDrop::drop(&mut self.hw),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                1 => ManuallyDrop::drop(&mut self.hw),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                4 => ManuallyDrop::drop(&mut self.avx2),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                #[cfg(avx512_feature)]
+                3 => ManuallyDrop::drop(&mut self.avx512),
+                #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
+                1 => ManuallyDrop::drop(&mut self.neon),
+                2 => ManuallyDrop::drop(&mut self.sw),
                 _ => unreachable!(),
             }
         }
