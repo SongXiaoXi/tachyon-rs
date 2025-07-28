@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 #[cfg_attr(target_pointer_width = "32", path = "fixslicing32.rs")]
 #[cfg_attr(target_pointer_width = "64", path = "fixslicing64.rs")]
 pub(crate) mod fixslicing;
@@ -375,9 +377,38 @@ const RSBOX: [u8; 256] = [
     0x17, 0x2b, 0x04, 0x7e, 0xba, 0x77, 0xd6, 0x26, 0xe1, 0x69, 0x14, 0x63, 0x55, 0x21, 0x0c, 0x7d
 ];
 
+// To reduce the size of the dynamic union
+struct FixSliceKeys(Box<fixslicing::FixsliceKeys128>);
+
+impl FixSliceKeys {
+    pub fn new(keys: fixslicing::FixsliceKeys128) -> Self {
+        Self(Box::new(keys))
+    }
+}
+
+impl Clone for FixSliceKeys {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl AsRef<fixslicing::FixsliceKeys128> for FixSliceKeys {
+    fn as_ref(&self) -> &fixslicing::FixsliceKeys128 {
+        &self.0
+    }
+}
+
+impl Deref for FixSliceKeys {
+    type Target = fixslicing::FixsliceKeys128;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 #[derive(Clone)]
 pub struct AES128 {
-    rkeys: fixslicing::FixsliceKeys128,
+    rkeys: FixSliceKeys,
     round_key: [u8; 176],
 }
 
@@ -391,7 +422,7 @@ impl AES128 {
         let rkeys = fixslicing::aes128_key_schedule(&key);
         let mut round_key: [u8; 176] = [0; 176];
         key_expansion_128(&key, &mut round_key);
-        Self { rkeys, round_key }
+        Self { rkeys: FixSliceKeys::new(rkeys), round_key }
     }
 
     #[inline(always)]
