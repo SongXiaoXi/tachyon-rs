@@ -315,11 +315,11 @@ impl AES128 {
         for chunk in &mut chunks {
             let block0 = unsafe { crate::utils::slice_to_array_at_mut(chunk, 0) };
             let block0 = unsafe { core::mem::transmute::<&mut [u8; 16], _>(block0) };
-            let block1 = unsafe { crate::utils::slice_to_array_at_mut(chunk, 1) };
+            let block1 = unsafe { crate::utils::slice_to_array_at_mut(chunk, 16) };
             let block1 = unsafe { core::mem::transmute::<&mut [u8; 16], _>(block1) };
-            let block2 = unsafe { crate::utils::slice_to_array_at_mut(chunk, 2) };
+            let block2 = unsafe { crate::utils::slice_to_array_at_mut(chunk, 32) };
             let block2 = unsafe { core::mem::transmute::<&mut [u8; 16], _>(block2) };
-            let block3 = unsafe { crate::utils::slice_to_array_at_mut(chunk, 3) };
+            let block3 = unsafe { crate::utils::slice_to_array_at_mut(chunk, 48) };
             let block3 = unsafe { core::mem::transmute::<&mut [u8; 16], _>(block3) };
 
             self.encrypt_4_blocks(block0, block1, block2, block3);
@@ -339,11 +339,11 @@ impl AES128 {
         for chunk in &mut chunks {
             let block0 = unsafe { crate::utils::slice_to_array_at_mut(chunk, 0) };
             let block0 = unsafe { core::mem::transmute::<&mut [u8; 16], _>(block0) };
-            let block1 = unsafe { crate::utils::slice_to_array_at_mut(chunk, 1) };
+            let block1 = unsafe { crate::utils::slice_to_array_at_mut(chunk, 16) };
             let block1 = unsafe { core::mem::transmute::<&mut [u8; 16], _>(block1) };
-            let block2 = unsafe { crate::utils::slice_to_array_at_mut(chunk, 2) };
+            let block2 = unsafe { crate::utils::slice_to_array_at_mut(chunk, 32) };
             let block2 = unsafe { core::mem::transmute::<&mut [u8; 16], _>(block2) };
-            let block3 = unsafe { crate::utils::slice_to_array_at_mut(chunk, 3) };
+            let block3 = unsafe { crate::utils::slice_to_array_at_mut(chunk, 48) };
             let block3 = unsafe { core::mem::transmute::<&mut [u8; 16], _>(block3) };
 
             self.decrypt_4_blocks(block0, block1, block2, block3);
