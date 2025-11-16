@@ -54,6 +54,7 @@ criterion = { version = "*", default-features = false }
 ring = "*"
 rand = "*"
 md5 = "*"
+data-encoding = { version = "2" }
 
 [lints.rust.unexpected_cfgs]
 level = "warn"
