@@ -1,5 +1,7 @@
 #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
 mod x86;
+#[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
+mod arm;
 mod soft;
 
 static LUT_DATA: [u8; 64] = *b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -10,6 +12,24 @@ static LUT_DATA: [u8; 64] = *b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvw
 #[allow(unreachable_code)]
 pub fn encode_slice(input: &[u8], output: &mut [u8]) -> Result<usize, ()> {
 
+    #[cfg(target_arch = "aarch64")]
+    unsafe {
+        return arm::encode_neon(input, output);
+    }
+    #[cfg(target_arch = "arm")]
+    unsafe {
+        static mut METHOD_IDX: u32 = u32::MAX; // 0: soft, 1: neon
+        if METHOD_IDX == u32::MAX {
+            if std::arch::is_arm_feature_detected!("neon") {
+                METHOD_IDX = 1;
+            } else {
+                METHOD_IDX = 0;
+            }
+        }
+        if METHOD_IDX == 1 {
+            return arm::encode_neon(input, output);
+        }
+    }
     #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
     unsafe {
         static mut METHOD_IDX: u32 = u32::MAX; // 0: soft, 1: sse, 2: avx, 3: avx2
