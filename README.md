@@ -4,7 +4,7 @@
 
 ## Features
 
-- Optimized for both **x86_64** (SSE, AVX) and **aarch64** (NEON) platforms. (AVX-512? Still waiting for it to stabilize... maybe someday.)
+- Optimized for both **x86_64** (SSE, AVX) and **aarch64** (NEON) platforms.
 - Focused on **performance** — carefully tuned SIMD intrinsics for critical code paths.
 - SIMD implementations often outperform well-known on ARM NEON.
 - Designed for performance-critical applications like embedded systems, secure networking, and data processing.
@@ -52,6 +52,9 @@ More examples can be found in the [bench](bench) directory.
 - `SHA-256`
 - `SHA-512`
 
+### Encoding
+- `Base64`
+
 ## Performance Highlights
 
 ### AES-128-GCM encryption of 64 KiB:
@@ -64,6 +67,7 @@ More examples can be found in the [bench](bench) directory.
 | Apple A12z    | **4855.90 MiB/s**    | 4472.18 MiB/s  | 4477.18 MiB/s(3.2.1) |
 | Snapdragon 888 | **4658.82 MiB/s**   | 3950.03 MiB/s | 3972.17 MiB/s(3.4.1) |
 | Snapdragon 6Gen1 | **2449.88 MiB/s**   | 2280.68 MiB/s | 2176.36 MiB/s(3.4.1) |
+| BCM2711 (RPi4) | **54.74 MiB/s**    | 49.01 MiB/s  | 23.41 MiB/s(3.5.0) |
 | Ryzen 9 9950X | **33178.55 MiB/s**   | 15612.82 MiB/s | 33120.97 MiB/s(3.4.1) |
 | Ryzen Z1 Extreme | **18197.73 MiB/s**   | 13798.14 MiB/s | 16407.54 MiB/s(3.5.0) |
 
@@ -77,6 +81,8 @@ More examples can be found in the [bench](bench) directory.
 | Snapdragon 888 | **1435.37 MiB/s**   | N/A     | 1325.19 MiB/s | 1277.12 MiB/s(3.4.1) |
 | Snapdragon 6Gen1 | **863.24 MiB/s** | N/A     | 759.92 MiB/s  | 654.70 MiB/s(3.4.1) |
 | i7-3770        | 1121.77 MiB/s   | N/A     | **1151.09 MiB/s**  | 1105.63 MiB/s(3.4.1) |
+| Ryzen 9 9950X | 4043.29 MiB/s   | N/A     | 3714.02 MiB/s  | **6900.42 MiB/s**(3.4.1) |
+| Ryzen Z1 Extreme | 3866.32 MiB/s   | N/A     | 3587.13 MiB/s  | **4388.11 MiB/s**(3.5.0) |
 
 ### MD5 hashing of 64 KiB:
 
@@ -93,9 +99,20 @@ More examples can be found in the [bench](bench) directory.
 | Ryzen 9 9950X  | **1243.69 MiB/s**   | 813.45 MiB/s  | 1186.78 MiB/s(3.4.1) |
 | BCM2711 (RPi4) | **323.22 MiB/s**    | 186.70 MiB/s  | 279.40 MiB/s(3.5.0) |
 
-Tip: 
+### Base64 encoding of 192 KiB:
+
+| Platform       | tachyon-rs | data-encoding(v2.9.0)  | base64(v0.22.1) |
+|----------------|------------|----------|-----------|
+| Apple M4       | **25201.00 MiB/s**    | 4459.62 MiB/s  | 5805.37 MiB/s |
+| Apple M1       | **19320.73 MiB/s**    | 2792.75 MiB/s  | 3229.96 MiB/s |
+| Snapdragon 888 | **9658.89 MiB/s**    | 1994.81 MiB/s  | 2278.04 MiB/s |
+| i7-10700K      | **11312.09 MiB/s**   | 2640.49 MiB/s  | 2815.74 MiB/s |
+| i7-3770        | **4282.44 MiB/s**    | 1902.48 MiB/s  | 1733.66 MiB/s |
+| Ryzen 9 9950X  | **17778.09 MiB/s**   | 4880.79 MiB/s  | 5219.13 MiB/s |
+| BCM2711 (RPi4) | **1493.90 MiB/s**    | 558.51 MiB/s  | 637.16 MiB/s |
+
+Tip:
 - On older Apple devices (e.g., A7–A10), compiling with `rust nightly` and `-Ztune-cpu=generic` may produce more favorable NEON code generation.
-- avx512+vaes is available in the `nightly` channel of Rust.
 
 ## Security Notice
 
