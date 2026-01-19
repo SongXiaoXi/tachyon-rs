@@ -413,6 +413,242 @@ impl AES128 {
     }
 }
 
+#[derive(Clone, Copy)]
+pub struct AES256 {
+    key_schedule: [uint8x16_t; 30],
+}
+
+impl AES256 {
+    pub const BLOCK_LEN: usize = 16;
+    pub const KEY_LEN: usize = 32;
+    pub(crate) const IS_SOFT: bool = false;
+}
+
+// AES-256 key expansion, layout mirrors AES128:
+// enc keys: k[0..15] (15 round keys)
+// dec keys: k[15..29] where k[i] = aesimc(k[29-i]) for i=15..28
+#[cfg_attr(target_arch = "aarch64", unsafe_target_feature("neon,aes"))]
+#[cfg_attr(target_arch = "arm", unsafe_target_feature("v8,neon,aes"))]
+#[inline(always)]
+fn load_key_256(k: &mut [uint8x16_t; 30], key: &[u8; 32]) {
+    use core::mem::transmute;
+    unsafe {
+        let mut ek: [u32; 60] = [0u32; 60];
+
+        // Load first 8 words from key (same style as AES128)
+        let k0: [u32; 4] = transmute(vld1q_u32(key.as_ptr() as *const u32));
+        let k1: [u32; 4] = transmute(vld1q_u32(key.as_ptr().add(16) as *const u32));
+        ek[0] = k0[0];
+        ek[1] = k0[1];
+        ek[2] = k0[2];
+        ek[3] = k0[3];
+        ek[4] = k1[0];
+        ek[5] = k1[1];
+        ek[6] = k1[2];
+        ek[7] = k1[3];
+
+        // Key expansion for AES-256 (Nk=8, Nr=14)
+        // Uses rotate_left(24) like AES128, plus extra SubWord at i%8==4
+        ek[8]  = ek[0] ^ (sub_word(ek[7]).rotate_left(24) ^ RCON[0]);
+        ek[9]  = ek[1] ^ ek[8];
+        ek[10] = ek[2] ^ ek[9];
+        ek[11] = ek[3] ^ ek[10];
+        ek[12] = ek[4] ^ sub_word(ek[11]);
+        ek[13] = ek[5] ^ ek[12];
+        ek[14] = ek[6] ^ ek[13];
+        ek[15] = ek[7] ^ ek[14];
+
+        ek[16] = ek[8]  ^ (sub_word(ek[15]).rotate_left(24) ^ RCON[1]);
+        ek[17] = ek[9]  ^ ek[16];
+        ek[18] = ek[10] ^ ek[17];
+        ek[19] = ek[11] ^ ek[18];
+        ek[20] = ek[12] ^ sub_word(ek[19]);
+        ek[21] = ek[13] ^ ek[20];
+        ek[22] = ek[14] ^ ek[21];
+        ek[23] = ek[15] ^ ek[22];
+
+        ek[24] = ek[16] ^ (sub_word(ek[23]).rotate_left(24) ^ RCON[2]);
+        ek[25] = ek[17] ^ ek[24];
+        ek[26] = ek[18] ^ ek[25];
+        ek[27] = ek[19] ^ ek[26];
+        ek[28] = ek[20] ^ sub_word(ek[27]);
+        ek[29] = ek[21] ^ ek[28];
+        ek[30] = ek[22] ^ ek[29];
+        ek[31] = ek[23] ^ ek[30];
+
+        ek[32] = ek[24] ^ (sub_word(ek[31]).rotate_left(24) ^ RCON[3]);
+        ek[33] = ek[25] ^ ek[32];
+        ek[34] = ek[26] ^ ek[33];
+        ek[35] = ek[27] ^ ek[34];
+        ek[36] = ek[28] ^ sub_word(ek[35]);
+        ek[37] = ek[29] ^ ek[36];
+        ek[38] = ek[30] ^ ek[37];
+        ek[39] = ek[31] ^ ek[38];
+
+        ek[40] = ek[32] ^ (sub_word(ek[39]).rotate_left(24) ^ RCON[4]);
+        ek[41] = ek[33] ^ ek[40];
+        ek[42] = ek[34] ^ ek[41];
+        ek[43] = ek[35] ^ ek[42];
+        ek[44] = ek[36] ^ sub_word(ek[43]);
+        ek[45] = ek[37] ^ ek[44];
+        ek[46] = ek[38] ^ ek[45];
+        ek[47] = ek[39] ^ ek[46];
+
+        ek[48] = ek[40] ^ (sub_word(ek[47]).rotate_left(24) ^ RCON[5]);
+        ek[49] = ek[41] ^ ek[48];
+        ek[50] = ek[42] ^ ek[49];
+        ek[51] = ek[43] ^ ek[50];
+        ek[52] = ek[44] ^ sub_word(ek[51]);
+        ek[53] = ek[45] ^ ek[52];
+        ek[54] = ek[46] ^ ek[53];
+        ek[55] = ek[47] ^ ek[54];
+
+        ek[56] = ek[48] ^ (sub_word(ek[55]).rotate_left(24) ^ RCON[6]);
+        ek[57] = ek[49] ^ ek[56];
+        ek[58] = ek[50] ^ ek[57];
+        ek[59] = ek[51] ^ ek[58];
+
+        // Load enc round keys (15 keys, same style as AES128)
+        let ptr = ek.as_ptr();
+        crate::const_loop!(i, 0, 15, {
+            k[i] = vreinterpretq_u8_u32(vld1q_u32(ptr.add(i * 4)));
+        });
+
+        // Dec keys (same pattern as AES128):
+        // AES128: k[11..20] = aesimc(k[9..0]), dec loop uses k[10..19]
+        // AES256: k[15..28] = aesimc(k[13..0]), dec loop uses k[14..27]
+        // k[15] = aesimc(k[13]), k[16] = aesimc(k[12]), ..., k[27] = aesimc(k[1])
+        crate::const_loop!(i, 15, 13, {
+            k[i] = vaesimcq_u8(k[28 - i]);
+        });
+    }
+}
+
+macro_rules! DO_ENC_BLOCK_256 {
+    ($block:expr, $key:expr) => {
+        #[allow(unused_unsafe)]
+        unsafe {
+            // Same pattern as AES128: vaese+vaesmc for middle rounds, xor for last
+            $block = vaeseq_u8($block, $key[0]);
+            crate::const_loop!(i, 1, 13, {
+                $block = vaeseq_u8(vaesmcq_u8($block), $key[i]);
+            });
+            $block = veorq_u8($block, $key[14]);
+        }
+    };
+}
+
+macro_rules! DO_DEC_BLOCK_256 {
+    ($block:expr, $key:expr) => {
+        #[allow(unused_unsafe)]
+        unsafe {
+            // Same pattern as AES128 DO_DEC_BLOCK:
+            // AES128: loop i=10..18 (9 times), then k[19], then xor k[0]
+            // AES256: loop i=14..26 (13 times), then k[27], then xor k[0]
+            crate::const_loop!(i, 14, 13, {
+                $block = vaesdq_u8($block, $key[i]);
+                $block = vaesimcq_u8($block);
+            });
+            $block = vaesdq_u8($block, $key[27]);
+            $block = veorq_u8($block, $key[0]);
+        }
+    };
+}
+
+#[cfg_attr(target_arch = "aarch64", unsafe_target_feature("neon,aes"))]
+#[cfg_attr(target_arch = "arm", unsafe_target_feature("v8,neon,aes"))]
+impl AES256 {
+    #[inline(always)]
+    pub fn new(key: [u8; 32]) -> Self {
+        let mut key_schedule = [unsafe { core::mem::zeroed() }; 30];
+        load_key_256(&mut key_schedule, &key);
+        Self { key_schedule }
+    }
+
+    #[inline(always)]
+    pub fn from_slice(key: &[u8]) -> Self {
+        assert_eq!(key.len(), 32);
+        Self::new(unsafe { *(key.as_ptr() as *const [u8; 32]) })
+    }
+
+    #[inline(always)]
+    pub fn encrypt(&self, data: &mut [u8; 16]) {
+        let mut block = unsafe { vld1q_u8(data.as_ptr()) };
+        DO_ENC_BLOCK_256!(block, self.key_schedule);
+        unsafe { vst1q_u8(data.as_mut_ptr(), block) };
+    }
+
+    #[inline(always)]
+    pub fn encrypt_copy(&self, data: &[u8; 16], output: &mut [u8; 16]) {
+        let mut block = unsafe { vld1q_u8(data.as_ptr()) };
+        DO_ENC_BLOCK_256!(block, self.key_schedule);
+        unsafe { vst1q_u8(output.as_mut_ptr(), block) };
+    }
+
+    #[inline(always)]
+    pub fn encrypt_simd(&self, mut block: uint8x16_t) -> uint8x16_t {
+        DO_ENC_BLOCK_256!(block, self.key_schedule);
+        block
+    }
+
+    #[inline(always)]
+    pub fn decrypt(&self, data: &mut [u8; 16]) {
+        let mut block = unsafe { vld1q_u8(data.as_ptr()) };
+        DO_DEC_BLOCK_256!(block, self.key_schedule);
+        unsafe { vst1q_u8(data.as_mut_ptr(), block) };
+    }
+
+    #[inline(always)]
+    pub fn decrypt_copy(&self, data: &[u8; 16], output: &mut [u8; 16]) {
+        let mut block = unsafe { vld1q_u8(data.as_ptr()) };
+        DO_DEC_BLOCK_256!(block, self.key_schedule);
+        unsafe { vst1q_u8(output.as_mut_ptr(), block) };
+    }
+
+    #[inline(always)]
+    pub fn decrypt_simd(&self, mut block: uint8x16_t) -> uint8x16_t {
+        DO_DEC_BLOCK_256!(block, self.key_schedule);
+        block
+    }
+
+    #[inline(always)]
+    pub(crate) fn encrypt_4_blocks_xor(&self, data: [&[u8; 16]; 4], text: [&mut [u8; 16]; 4]) {
+        let mut block0 = unsafe { vld1q_u8(data[0].as_ptr()) };
+        let mut block1 = unsafe { vld1q_u8(data[1].as_ptr()) };
+        let mut block2 = unsafe { vld1q_u8(data[2].as_ptr()) };
+        let mut block3 = unsafe { vld1q_u8(data[3].as_ptr()) };
+
+        unsafe {
+            // First round
+            block0 = vaeseq_u8(block0, self.key_schedule[0]);
+            block1 = vaeseq_u8(block1, self.key_schedule[0]);
+            block2 = vaeseq_u8(block2, self.key_schedule[0]);
+            block3 = vaeseq_u8(block3, self.key_schedule[0]);
+
+            // Middle rounds (1..13)
+            crate::const_loop!(i, 1, 13, {
+                block0 = vaeseq_u8(vaesmcq_u8(block0), self.key_schedule[i]);
+                block1 = vaeseq_u8(vaesmcq_u8(block1), self.key_schedule[i]);
+                block2 = vaeseq_u8(vaesmcq_u8(block2), self.key_schedule[i]);
+                block3 = vaeseq_u8(vaesmcq_u8(block3), self.key_schedule[i]);
+            });
+
+            // Last round: xor final round key and xor plaintext in place.
+            block0 = veorq_u8(block0, veorq_u8(self.key_schedule[14], vld1q_u8(text[0].as_ptr())));
+            block1 = veorq_u8(block1, veorq_u8(self.key_schedule[14], vld1q_u8(text[1].as_ptr())));
+            block2 = veorq_u8(block2, veorq_u8(self.key_schedule[14], vld1q_u8(text[2].as_ptr())));
+            block3 = veorq_u8(block3, veorq_u8(self.key_schedule[14], vld1q_u8(text[3].as_ptr())));
+
+            vst1q_u8(text[0].as_mut_ptr(), block0);
+            vst1q_u8(text[1].as_mut_ptr(), block1);
+            vst1q_u8(text[2].as_mut_ptr(), block2);
+            vst1q_u8(text[3].as_mut_ptr(), block3);
+        }
+    }
+}
+
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -436,5 +672,14 @@ mod tests {
         let mut data = [0x39, 0x25, 0x84, 0x1d, 0x02, 0xdc, 0x09, 0xfb, 0xdc, 0x11, 0x85, 0x97, 0x19, 0x6a, 0x0b, 0x32];
         cipher.decrypt(&mut data);
         assert_eq!(data, [0x32, 0x43, 0xf6, 0xa8, 0x88, 0x5a, 0x30, 0x8d, 0x31, 0x31, 0x98, 0xa2, 0xe0, 0x37, 0x07, 0x34]);
+    }
+
+    #[test]
+    fn test_aes256() {
+        if !is_target_feature_detected!("aes") {
+            return;
+        }
+
+        aes256_test_case!();
     }
 }
