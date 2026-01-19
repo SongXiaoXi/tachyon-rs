@@ -72,7 +72,7 @@ const fn key_expansion_128(key: &[u8; 16], round_key: &mut [u8; 176]) {
 fn add_round_key(state: &mut [u8; 16], round_key: &[u8; 176], round: usize) {
     #[crate::loop_unroll(i, 0, 4)]
     fn loop_unroll() {
-        state[i * 4] ^= round_key[round * Nb * 4 + i * Nb];
+        state[i * 4 + 0] ^= round_key[round * Nb * 4 + i * Nb];
         state[i * 4 + 1] ^= round_key[round * Nb * 4 + i * Nb + 1];
         state[i * 4 + 2] ^= round_key[round * Nb * 4 + i * Nb + 2];
         state[i * 4 + 3] ^= round_key[round * Nb * 4 + i * Nb + 3];
@@ -553,6 +553,156 @@ impl AES128 {
     
 }
 
+pub const AES256_BLOCK_LEN: usize = 16;
+pub const AES256_KEY_LEN: usize = 32;
+#[derive(Clone)]
+pub struct AES256 {
+    rk: [u32; 60], // 4*(Nr+1) where Nr=14
+}
+
+#[inline]
+fn sbox(x: u8) -> u8 {
+    SBOX[x as usize]
+}
+
+#[inline]
+fn rcon(i: usize) -> u8 {
+    // i starts at 1
+    const RCON: [u8; 15] = [0x00, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36, 0x6c, 0xd8, 0xab, 0x4d];
+    RCON.get(i).copied().unwrap_or(0)
+}
+
+#[inline]
+fn rot_word(w: u32) -> u32 {
+    (w << 8) | (w >> 24)
+}
+
+#[inline]
+fn sub_word(w: u32) -> u32 {
+    let b0 = sbox((w >> 24) as u8);
+    let b1 = sbox((w >> 16) as u8);
+    let b2 = sbox((w >> 8) as u8);
+    let b3 = sbox(w as u8);
+    u32::from_be_bytes([b0, b1, b2, b3])
+}
+
+#[inline]
+fn add_round_key_256(state: &mut [u8; 16], rk_words: &[u32]) {
+    debug_assert_eq!(rk_words.len(), 4);
+    for c in 0..4 {
+        let w = rk_words[c].to_be_bytes();
+        state[c * 4 + 0] ^= w[0];
+        state[c * 4 + 1] ^= w[1];
+        state[c * 4 + 2] ^= w[2];
+        state[c * 4 + 3] ^= w[3];
+    }
+}
+
+
+impl AES256 {
+    const NR: usize = 14;
+
+    pub const BLOCK_LEN: usize = 16;
+    pub const KEY_LEN: usize = 32;
+
+    #[inline(always)]
+    pub fn new(key: [u8; 32]) -> Self {
+        let mut rk = [0u32; 60];
+        for i in 0..8 {
+            rk[i] = u32::from_be_bytes([
+                key[i * 4],
+                key[i * 4 + 1],
+                key[i * 4 + 2],
+                key[i * 4 + 3],
+            ]);
+        }
+        for i in 8..60 {
+            let mut t = rk[i - 1];
+            if i % 8 == 0 {
+                t = sub_word(rot_word(t)) ^ (u32::from(rcon(i / 8)) << 24);
+            } else if i % 8 == 4 {
+                t = sub_word(t);
+            }
+            rk[i] = rk[i - 8] ^ t;
+        }
+        Self { rk }
+    }
+
+    fn encrypt_block(&self, block: &mut [u8; 16]) {
+        // Straightforward AES rounds (bytes state), correctness > speed.
+        // State is column-major: state[c*4 + r].
+        let mut s = *block;
+        add_round_key_256(&mut s, &self.rk[0..4]);
+
+        for round in 1..Self::NR {
+            sub_bytes(&mut s);
+            shift_rows(&mut s);
+            mix_columns(&mut s);
+            add_round_key_256(&mut s, &self.rk[round * 4..round * 4 + 4]);
+        }
+
+        sub_bytes(&mut s);
+        shift_rows(&mut s);
+        add_round_key_256(&mut s, &self.rk[Self::NR * 4..Self::NR * 4 + 4]);
+
+        *block = s;
+    }
+
+    pub fn encrypt(&self, data: &mut [u8; 16]) {
+        self.encrypt_block(data);
+    }
+
+    pub fn encrypt_copy(&self, data: &[u8; 16], output: &mut [u8; 16]) {
+        *output = *data;
+        self.encrypt_block(output);
+    }
+
+    fn decrypt_block(&self, block: &mut [u8; 16]) {
+        let mut s = *block;
+        add_round_key_256(&mut s, &self.rk[Self::NR * 4..Self::NR * 4 + 4]);
+
+        for round in (1..Self::NR).rev() {
+            inv_shift_rows(&mut s);
+            inv_sub_bytes(&mut s);
+            add_round_key_256(&mut s, &self.rk[round * 4..round * 4 + 4]);
+            inv_mix_columns(&mut s);
+        }
+
+        inv_shift_rows(&mut s);
+        inv_sub_bytes(&mut s);
+        add_round_key_256(&mut s, &self.rk[0..4]);
+
+        *block = s;
+    }
+
+    pub fn decrypt(&self, data: &mut [u8; 16]) {
+        self.decrypt_block(data);
+    }
+
+    pub fn decrypt_copy(&self, data: &[u8; 16], output: &mut [u8; 16]) {
+        *output = *data;
+        self.decrypt_block(output);
+    }
+
+    #[inline(always)]
+    pub(crate) fn encrypt_4_blocks_xor(&self, data: [&[u8; 16]; 4], text: [&mut [u8; 16]; 4]) {
+        let mut b0 = *data[0];
+        let mut b1 = *data[1];
+        let mut b2 = *data[2];
+        let mut b3 = *data[3];
+
+        self.encrypt(&mut b0);
+        self.encrypt(&mut b1);
+        self.encrypt(&mut b2);
+        self.encrypt(&mut b3);
+
+        crate::utils::portable::xor_si128_inplace(text[0], &b0);
+        crate::utils::portable::xor_si128_inplace(text[1], &b1);
+        crate::utils::portable::xor_si128_inplace(text[2], &b2);
+        crate::utils::portable::xor_si128_inplace(text[3], &b3);
+    }
+}
+
 #[cfg(test)]
 macro_rules! aes128_test_case {
     ($name:ty) => {
@@ -573,11 +723,61 @@ macro_rules! aes128_test_case {
 }
 
 #[cfg(test)]
+macro_rules! aes256_test_case {
+    ($name:ty) => {
+        // NIST SP 800-38A F.1.5 AES-256 ECB
+        // Key:
+        // 603deb1015ca71be2b73aef0857d7781
+        // 1f352c073b6108d72d9810a30914dff4
+        // Plaintext:
+        // 6bc1bee22e409f96e93d7e117393172a
+        // Ciphertext:
+        // f3eed1bdb5d2a03c064b5a7e3db181f8
+        let key: [u8; 32] = [
+            0x60, 0x3d, 0xeb, 0x10, 0x15, 0xca, 0x71, 0xbe, 0x2b, 0x73, 0xae, 0xf0, 0x85,
+            0x7d, 0x77, 0x81, 0x1f, 0x35, 0x2c, 0x07, 0x3b, 0x61, 0x08, 0xd7, 0x2d, 0x98,
+            0x10, 0xa3, 0x09, 0x14, 0xdf, 0xf4,
+        ];
+        let cipher = <$name>::new(key);
+
+        let mut data: [u8; 16] = [
+            0x6b, 0xc1, 0xbe, 0xe2, 0x2e, 0x40, 0x9f, 0x96, 0xe9, 0x3d, 0x7e, 0x11, 0x73,
+            0x93, 0x17, 0x2a,
+        ];
+        cipher.encrypt(&mut data);
+        assert_eq!(
+            data,
+            [
+                0xf3, 0xee, 0xd1, 0xbd, 0xb5, 0xd2, 0xa0, 0x3c, 0x06, 0x4b, 0x5a, 0x7e,
+                0x3d, 0xb1, 0x81, 0xf8,
+            ]
+        );
+
+        cipher.decrypt(&mut data);
+        assert_eq!(
+            data,
+            [
+                0x6b, 0xc1, 0xbe, 0xe2, 0x2e, 0x40, 0x9f, 0x96, 0xe9, 0x3d, 0x7e, 0x11,
+                0x73, 0x93, 0x17, 0x2a,
+            ]
+        );
+    };
+    () => {
+        aes256_test_case!(AES256);
+    };
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_aes128() {
         aes128_test_case!();
+    }
+
+    #[test]
+    fn test_aes256() {
+        aes256_test_case!();
     }
 }
