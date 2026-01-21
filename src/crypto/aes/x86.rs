@@ -188,6 +188,126 @@ macro_rules! DO_ENC_BLOCKS_XOR {
         }
     }};
 }
+
+
+macro_rules! key_expansion_256_1 {
+    ($key:expr, $keygened:expr) => {{
+        let mut key = $key;
+
+        let tmp = _mm_shuffle_epi32($keygened, 0xff);
+
+        let mut t = _mm_slli_si128(key, 4);
+        key = _mm_xor_si128(key, t);
+        t = _mm_slli_si128(t, 4);
+        key = _mm_xor_si128(key, t);
+        t = _mm_slli_si128(t, 4);
+        key = _mm_xor_si128(key, t);
+
+        _mm_xor_si128(key, tmp)
+    }};
+}
+
+macro_rules! key_expansion_256_2 {
+    ($key:expr, $keygened:expr) => {{
+        let mut key = $key;
+
+        let tmp = _mm_shuffle_epi32($keygened, 0xaa);
+
+        let mut t = _mm_slli_si128(key, 4);
+        key = _mm_xor_si128(key, t);
+        t = _mm_slli_si128(t, 4);
+        key = _mm_xor_si128(key, t);
+        t = _mm_slli_si128(t, 4);
+        key = _mm_xor_si128(key, t);
+
+        _mm_xor_si128(key, tmp)
+    }};
+}
+
+macro_rules! key_exp_256_1 {
+    ($k1:expr, $k2:expr, $rcon:expr) => {{
+        let keygened = _mm_aeskeygenassist_si128($k2, $rcon);
+        key_expansion_256_1!($k1, keygened)
+    }};
+}
+
+macro_rules! key_exp_256_2 {
+    ($k2:expr, $k1_new:expr) => {{
+        let keygened = _mm_aeskeygenassist_si128($k1_new, 0x00);
+        key_expansion_256_2!($k2, keygened)
+    }};
+}
+
+macro_rules! load_key_256 {
+    ($key_schedule:expr, $key:expr) => {{
+        let k0 = _mm_loadu_si128($key.as_ptr() as *const __m128i);
+        let k1 = _mm_loadu_si128($key.as_ptr().add(16) as *const __m128i);
+
+        $key_schedule[0] = k0;
+        $key_schedule[1] = k1;
+
+        $key_schedule[2] = key_exp_256_1!($key_schedule[0], $key_schedule[1], 0x01);
+        $key_schedule[3] = key_exp_256_2!($key_schedule[1], $key_schedule[2]);
+
+        $key_schedule[4] = key_exp_256_1!($key_schedule[2], $key_schedule[3], 0x02);
+        $key_schedule[5] = key_exp_256_2!($key_schedule[3], $key_schedule[4]);
+
+        $key_schedule[6] = key_exp_256_1!($key_schedule[4], $key_schedule[5], 0x04);
+        $key_schedule[7] = key_exp_256_2!($key_schedule[5], $key_schedule[6]);
+
+        $key_schedule[8] = key_exp_256_1!($key_schedule[6], $key_schedule[7], 0x08);
+        $key_schedule[9] = key_exp_256_2!($key_schedule[7], $key_schedule[8]);
+
+        $key_schedule[10] = key_exp_256_1!($key_schedule[8], $key_schedule[9], 0x10);
+        $key_schedule[11] = key_exp_256_2!($key_schedule[9], $key_schedule[10]);
+
+        $key_schedule[12] = key_exp_256_1!($key_schedule[10], $key_schedule[11], 0x20);
+        $key_schedule[13] = key_exp_256_2!($key_schedule[11], $key_schedule[12]);
+
+        $key_schedule[14] = key_exp_256_1!($key_schedule[12], $key_schedule[13], 0x40);
+
+        // ---- decryption keys layout (15 keys) ----
+        // dec[0]  = enc[14]
+        // dec[i]  = aesimc(enc[14 - i]) for i=1..13
+        // dec[14] = enc[0]
+        $key_schedule[15] = $key_schedule[14];
+        crate::const_loop!(i, 1, 13, {
+            $key_schedule[15 + i] = _mm_aesimc_si128($key_schedule[14 - i]);
+        });
+        $key_schedule[29] = $key_schedule[0];
+    }};
+}
+
+macro_rules! DO_ENC_BLOCK_256 {
+    ($block:expr, $key:expr) => {
+        #[allow(unused_unsafe)]
+        unsafe {
+            $block = _mm_xor_si128($block, $key[0]);
+            crate::const_loop!(i, 1, 13, {
+                $block = _mm_aesenc_si128($block, $key[i]);
+            });
+            $block = _mm_aesenclast_si128($block, $key[14]);
+        }
+    };
+}
+
+macro_rules! DO_DEC_BLOCK_256 {
+    ($block:expr, $key:expr) => {
+        #[allow(unused_unsafe)]
+        unsafe {
+            // match AES128 style: initial xor with last enc key
+            $block = _mm_xor_si128($block, $key[14]);
+
+            // 13 middle rounds use aesimc(enc[13..1]) stored at key[16..28]
+            crate::const_loop!(i, 1, 13, {
+                $block = _mm_aesdec_si128($block, $key[15 + i]);
+            });
+
+            $block = _mm_aesdeclast_si128($block, $key[0]);
+        }
+    };
+}
+
 }
 
 pub(crate) use key_expansion_128;
@@ -198,6 +318,13 @@ pub(crate) use DO_DEC_BLOCK;
 pub(crate) use DO_ENC_4_BLOCKS;
 pub(crate) use DO_DEC_4_BLOCKS;
 pub(crate) use DO_ENC_BLOCKS_XOR;
+pub(crate) use key_expansion_256_1;
+pub(crate) use key_expansion_256_2;
+pub(crate) use key_exp_256_1;
+pub(crate) use key_exp_256_2;
+pub(crate) use load_key_256;
+pub(crate) use DO_ENC_BLOCK_256;
+pub(crate) use DO_DEC_BLOCK_256;
 
 #[derive(Clone, Copy)]
 pub struct AES128 {
@@ -356,6 +483,98 @@ impl AES128 {
     }
 }
 
+#[derive(Clone, Copy)]
+pub struct AES256 {
+    key_schedule: [__m128i; 30],
+}
+
+impl AES256 {
+    pub const BLOCK_LEN: usize = 16;
+    pub const KEY_LEN: usize = 32;
+    pub const IS_SOFT: bool = false;
+}
+
+#[unsafe_target_feature("sse2,aes")]
+impl AES256 {
+    #[inline(always)]
+    pub fn new(key: [u8; 32]) -> Self {
+        let mut key_schedule = [unsafe { core::mem::zeroed() }; 30];
+        unsafe {
+            load_key_256!(&mut key_schedule, &key);
+        }
+        Self { key_schedule }
+    }
+
+    #[inline(always)]
+    pub fn from_slice(key: &[u8]) -> Self {
+        assert_eq!(key.len(), 32);
+        Self::new(unsafe { *(key.as_ptr() as *const [u8; 32]) })
+    }
+#[inline(always)]
+    pub fn encrypt(&self, data: &mut [u8; 16]) {
+        let mut block = unsafe { _mm_loadu_si128(data.as_ptr() as *const __m128i) };
+        DO_ENC_BLOCK_256!(block, self.key_schedule);
+        unsafe { _mm_storeu_si128(data.as_mut_ptr() as *mut __m128i, block) };
+    }
+
+    #[inline(always)]
+    pub fn encrypt_copy(&self, data: &[u8; 16], output: &mut [u8; 16]) {
+        let mut block = unsafe { _mm_loadu_si128(data.as_ptr() as *const __m128i) };
+        DO_ENC_BLOCK_256!(block, self.key_schedule);
+        unsafe { _mm_storeu_si128(output.as_mut_ptr() as *mut __m128i, block) };
+    }
+
+    #[inline(always)]
+    pub fn encrypt_simd(&self, mut block: __m128i) -> __m128i {
+        DO_ENC_BLOCK_256!(block, self.key_schedule);
+        block
+    }
+
+    #[inline(always)]
+    pub fn decrypt(&self, data: &mut [u8; 16]) {
+        let mut block = unsafe { _mm_loadu_si128(data.as_ptr() as *const __m128i) };
+        DO_DEC_BLOCK_256!(block, self.key_schedule);
+        unsafe { _mm_storeu_si128(data.as_mut_ptr() as *mut __m128i, block) };
+    }
+
+    #[inline(always)]
+    pub fn decrypt_copy(&self, data: &[u8; 16], output: &mut [u8; 16]) {
+        let mut block = unsafe { _mm_loadu_si128(data.as_ptr() as *const __m128i) };
+        DO_DEC_BLOCK_256!(block, self.key_schedule);
+        unsafe { _mm_storeu_si128(output.as_mut_ptr() as *mut __m128i, block) };
+    }
+
+    #[inline(always)]
+    pub fn decrypt_simd(&self, mut block: __m128i) -> __m128i {
+        DO_DEC_BLOCK_256!(block, self.key_schedule);
+        block
+    }
+
+    #[inline(always)]
+    pub(crate) fn encrypt_4_blocks_xor(&self, data: [&[u8; 16]; 4], text: [&mut [u8; 16]; 4]) {
+        unsafe {
+            let mut block0 = _mm_loadu_si128(data[0].as_ptr() as *const __m128i);
+            let mut block1 = _mm_loadu_si128(data[1].as_ptr() as *const __m128i);
+            let mut block2 = _mm_loadu_si128(data[2].as_ptr() as *const __m128i);
+            let mut block3 = _mm_loadu_si128(data[3].as_ptr() as *const __m128i);
+
+            DO_ENC_BLOCK_256!(block0, self.key_schedule);
+            DO_ENC_BLOCK_256!(block1, self.key_schedule);
+            DO_ENC_BLOCK_256!(block2, self.key_schedule);
+            DO_ENC_BLOCK_256!(block3, self.key_schedule);
+
+            block0 = _mm_xor_si128(block0, _mm_loadu_si128(text[0].as_ptr() as *const __m128i));
+            block1 = _mm_xor_si128(block1, _mm_loadu_si128(text[1].as_ptr() as *const __m128i));
+            block2 = _mm_xor_si128(block2, _mm_loadu_si128(text[2].as_ptr() as *const __m128i));
+            block3 = _mm_xor_si128(block3, _mm_loadu_si128(text[3].as_ptr() as *const __m128i));
+
+            _mm_storeu_si128(text[0].as_mut_ptr() as *mut __m128i, block0);
+            _mm_storeu_si128(text[1].as_mut_ptr() as *mut __m128i, block1);
+            _mm_storeu_si128(text[2].as_mut_ptr() as *mut __m128i, block2);
+            _mm_storeu_si128(text[3].as_mut_ptr() as *mut __m128i, block3);
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -376,5 +595,13 @@ mod tests {
         let mut data = [0x39, 0x25, 0x84, 0x1d, 0x02, 0xdc, 0x09, 0xfb, 0xdc, 0x11, 0x85, 0x97, 0x19, 0x6a, 0x0b, 0x32];
         cipher.decrypt(&mut data);
         assert_eq!(data, [0x32, 0x43, 0xf6, 0xa8, 0x88, 0x5a, 0x30, 0x8d, 0x31, 0x31, 0x98, 0xa2, 0xe0, 0x37, 0x07, 0x34]);
+    }
+
+    #[test]
+    fn test_aes256() {
+        if !crate::is_hw_feature_detected!("sse2", "aes") {
+            return;
+        }
+        aes256_test_case!();
     }
 }
