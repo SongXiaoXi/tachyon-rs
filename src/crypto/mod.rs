@@ -1,4 +1,5 @@
 pub mod aes;
+pub mod ctr;
 pub mod gcm;
 pub mod ghash;
 pub mod chacha20;
