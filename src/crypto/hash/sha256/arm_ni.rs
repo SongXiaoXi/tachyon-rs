@@ -285,7 +285,12 @@ mod tests {
 
     #[test]
     fn test_sha256() {
+        #[cfg(target_arch = "aarch64")]
         if !std::arch::is_aarch64_feature_detected!("sha2") {
+            return;
+        }
+        #[cfg(target_arch = "arm")]
+        if !std::arch::is_arm_feature_detected!("sha2") {
             return;
         }
         sha256_test_case!();

@@ -2,6 +2,7 @@
 use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
+#[allow(unused_imports)]
 use super::x86_ssse3::process_block_with;
 use unsafe_target_feature::unsafe_target_feature;
 
