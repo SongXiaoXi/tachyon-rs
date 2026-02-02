@@ -39,15 +39,13 @@ fn sub_word(x: u32) -> u32 {
     u32::from_le_bytes(bytes)
 }
 
-#[cfg_attr(target_arch = "aarch64", unsafe_target_feature("neon,aes"))]
-#[cfg_attr(target_arch = "arm", unsafe_target_feature("v8,neon,aes"))]
-#[inline(always)]
-fn load_key_128(k: &mut [uint8x16_t; 20], key: &[u8; 16]) {
-    use core::mem::transmute;
-    unsafe {
-        let mut ek: [u32; 44] = [0u32; 44];
+macro_rules! load_key_128_impl {
+    ($k:expr, $key:expr, enc_only) => {{
+        use core::mem::transmute;
+        unsafe {
+            let mut ek: [u32; 44] = [0u32; 44];
 
-            let k1: [u32; 4] = transmute(vld1q_u32(key.as_ptr() as *const u32));
+            let k1: [u32; 4] = transmute(vld1q_u32($key.as_ptr() as *const u32));
             ek[0] = k1[0];
             ek[1] = k1[1];
             ek[2] = k1[2];
@@ -104,15 +102,32 @@ fn load_key_128(k: &mut [uint8x16_t; 20], key: &[u8; 16]) {
             ek[43] = ek[39] ^ ek[42];
 
             let ptr = ek.as_ptr();
+            crate::const_loop!(i, 0, 11, {
+                $k[i] = vreinterpretq_u8_u32(vld1q_u32(ptr.add(i * 4)));
+            });
+        }
+    }};
 
-        crate::const_loop!(i, 0, 11, {
-            k[i] = vreinterpretq_u8_u32(vld1q_u32(ptr.add(i * 4)));
-        });
-
+    ($k:expr, $key:expr, with_dec) => {{
+        load_key_128_impl!($k, $key, enc_only);
         crate::const_loop!(i, 11, 9, {
-            k[i] = vaesimcq_u8(k[20 - i]);
+            $k[i] = vaesimcq_u8($k[20 - i]);
         });
-    }
+    }};
+}
+
+#[cfg_attr(target_arch = "aarch64", unsafe_target_feature("neon,aes"))]
+#[cfg_attr(target_arch = "arm", unsafe_target_feature("v8,neon,aes"))]
+#[inline(always)]
+fn load_key_128(k: &mut [uint8x16_t; 20], key: &[u8; 16]) {
+    load_key_128_impl!(k, key, with_dec);
+}
+
+#[cfg_attr(target_arch = "aarch64", unsafe_target_feature("neon,aes"))]
+#[cfg_attr(target_arch = "arm", unsafe_target_feature("v8,neon,aes"))]
+#[inline(always)]
+fn load_key_128_enc(k: &mut [uint8x16_t; 11], key: &[u8; 16]) {
+    load_key_128_impl!(k, key, enc_only);
 }
 
 macro_rules! DO_ENC_BLOCK {
@@ -147,7 +162,18 @@ pub struct AES128 {
     key_schedule: [uint8x16_t; 20],
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct AES128Encryptor {
+    key_schedule: [uint8x16_t; 11],
+}
+
 impl AES128 {
+    pub const BLOCK_LEN: usize = 16;
+    pub const KEY_LEN: usize = 16;
+    pub(crate) const IS_SOFT: bool = false;
+}
+
+impl AES128Encryptor {
     pub const BLOCK_LEN: usize = 16;
     pub const KEY_LEN: usize = 16;
     pub(crate) const IS_SOFT: bool = false;
@@ -409,6 +435,143 @@ impl AES128 {
         for chunk in chunks.into_remainder().chunks_exact_mut(16) {
             let mut block = unsafe { crate::utils::slice_to_array_mut(chunk) };
             self.encrypt(&mut block);
+        }
+    }
+}
+
+#[cfg_attr(target_arch = "aarch64", unsafe_target_feature("neon,aes"))]
+#[cfg_attr(target_arch = "arm", unsafe_target_feature("v8,neon,aes"))]
+impl AES128Encryptor {
+    #[inline(always)]
+    pub fn new(key: [u8; 16]) -> Self {
+        let mut key_schedule = [unsafe { core::mem::zeroed() }; 11];
+        load_key_128_enc(&mut key_schedule, &key);
+        Self { key_schedule }
+    }
+
+    #[inline(always)]
+    pub fn from_slice(key: &[u8]) -> Self {
+        assert_eq!(key.len(), 16);
+        Self::new(unsafe { *(key.as_ptr() as *const [u8; 16]) })
+    }
+
+    #[inline(always)]
+    pub fn encrypt(&self, data: &mut [u8; 16]) {
+        let mut block = unsafe { vld1q_u8(data.as_ptr()) };
+        DO_ENC_BLOCK!(block, self.key_schedule);
+        unsafe { vst1q_u8(data.as_mut_ptr(), block) };
+    }
+
+    #[inline(always)]
+    pub fn encrypt_simd(&self, mut block: uint8x16_t) -> uint8x16_t {
+        DO_ENC_BLOCK!(block, self.key_schedule);
+        block
+    }
+
+    #[inline(always)]
+    pub fn encrypt_copy(&self, data: &[u8; 16], output: &mut [u8; 16]) {
+        let mut block = unsafe { vld1q_u8(data.as_ptr()) };
+        DO_ENC_BLOCK!(block, self.key_schedule);
+        unsafe { vst1q_u8(output.as_mut_ptr(), block) };
+    }
+
+    #[inline(always)]
+    pub(crate) fn encrypt_4_blocks_xor(&self, data: [&[u8; 16]; 4], text: [&mut [u8; 16]; 4]) {
+        let mut block0 = unsafe { vld1q_u8(data[0].as_ptr()) };
+        let mut block1 = unsafe { vld1q_u8(data[1].as_ptr()) };
+        let mut block2 = unsafe { vld1q_u8(data[2].as_ptr()) };
+        let mut block3 = unsafe { vld1q_u8(data[3].as_ptr()) };
+
+        unsafe {
+            crate::const_loop!(i, 0, 9, {
+                block0 = vaesmcq_u8(vaeseq_u8(block0, self.key_schedule[i]));
+                block1 = vaesmcq_u8(vaeseq_u8(block1, self.key_schedule[i]));
+                block2 = vaesmcq_u8(vaeseq_u8(block2, self.key_schedule[i]));
+                block3 = vaesmcq_u8(vaeseq_u8(block3, self.key_schedule[i]));
+            });
+
+            block0 = vaeseq_u8(block0, self.key_schedule[9]);
+            block1 = vaeseq_u8(block1, self.key_schedule[9]);
+            block2 = vaeseq_u8(block2, self.key_schedule[9]);
+            block3 = vaeseq_u8(block3, self.key_schedule[9]);
+
+            block0 = veorq_u8(block0, veorq_u8(self.key_schedule[10], vld1q_u8(text[0].as_ptr())));
+            block1 = veorq_u8(block1, veorq_u8(self.key_schedule[10], vld1q_u8(text[1].as_ptr())));
+            block2 = veorq_u8(block2, veorq_u8(self.key_schedule[10], vld1q_u8(text[2].as_ptr())));
+            block3 = veorq_u8(block3, veorq_u8(self.key_schedule[10], vld1q_u8(text[3].as_ptr())));
+
+            vst1q_u8(text[0].as_mut_ptr(), block0);
+            vst1q_u8(text[1].as_mut_ptr(), block1);
+            vst1q_u8(text[2].as_mut_ptr(), block2);
+            vst1q_u8(text[3].as_mut_ptr(), block3);
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn encrypt_6_blocks_xor(&self, data: [&[u8; 16]; 6], text: [&mut [u8; 16]; 6]) {
+        let mut block0 = unsafe { vld1q_u8(data[0].as_ptr()) };
+        let mut block1 = unsafe { vld1q_u8(data[1].as_ptr()) };
+        let mut block2 = unsafe { vld1q_u8(data[2].as_ptr()) };
+        let mut block3 = unsafe { vld1q_u8(data[3].as_ptr()) };
+        let mut block4 = unsafe { vld1q_u8(data[4].as_ptr()) };
+        let mut block5 = unsafe { vld1q_u8(data[5].as_ptr()) };
+
+        unsafe {
+            crate::const_loop!(i, 0, 9, {
+                block0 = vaesmcq_u8(vaeseq_u8(block0, self.key_schedule[i]));
+                block1 = vaesmcq_u8(vaeseq_u8(block1, self.key_schedule[i]));
+                block2 = vaesmcq_u8(vaeseq_u8(block2, self.key_schedule[i]));
+                block3 = vaesmcq_u8(vaeseq_u8(block3, self.key_schedule[i]));
+                block4 = vaesmcq_u8(vaeseq_u8(block4, self.key_schedule[i]));
+                block5 = vaesmcq_u8(vaeseq_u8(block5, self.key_schedule[i]));
+            });
+
+            block0 = vaeseq_u8(block0, self.key_schedule[9]);
+            block1 = vaeseq_u8(block1, self.key_schedule[9]);
+            block2 = vaeseq_u8(block2, self.key_schedule[9]);
+            block3 = vaeseq_u8(block3, self.key_schedule[9]);
+            block4 = vaeseq_u8(block4, self.key_schedule[9]);
+            block5 = vaeseq_u8(block5, self.key_schedule[9]);
+
+            block0 = veorq_u8(block0, veorq_u8(self.key_schedule[10], vld1q_u8(text[0].as_ptr())));
+            block1 = veorq_u8(block1, veorq_u8(self.key_schedule[10], vld1q_u8(text[1].as_ptr())));
+            block2 = veorq_u8(block2, veorq_u8(self.key_schedule[10], vld1q_u8(text[2].as_ptr())));
+            block3 = veorq_u8(block3, veorq_u8(self.key_schedule[10], vld1q_u8(text[3].as_ptr())));
+            block4 = veorq_u8(block4, veorq_u8(self.key_schedule[10], vld1q_u8(text[4].as_ptr())));
+            block5 = veorq_u8(block5, veorq_u8(self.key_schedule[10], vld1q_u8(text[5].as_ptr())));
+
+            vst1q_u8(text[0].as_mut_ptr(), block0);
+            vst1q_u8(text[1].as_mut_ptr(), block1);
+            vst1q_u8(text[2].as_mut_ptr(), block2);
+            vst1q_u8(text[3].as_mut_ptr(), block3);
+            vst1q_u8(text[4].as_mut_ptr(), block4);
+            vst1q_u8(text[5].as_mut_ptr(), block5);
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn encrypt_4_blocks(
+        &self,
+        data0: &mut [u8; 16],
+        data1: &mut [u8; 16],
+        data2: &mut [u8; 16],
+        data3: &mut [u8; 16],
+    ) {
+        let mut block0 = unsafe { vld1q_u8(data0.as_ptr()) };
+        let mut block1 = unsafe { vld1q_u8(data1.as_ptr()) };
+        let mut block2 = unsafe { vld1q_u8(data2.as_ptr()) };
+        let mut block3 = unsafe { vld1q_u8(data3.as_ptr()) };
+
+        DO_ENC_BLOCK!(block0, self.key_schedule);
+        DO_ENC_BLOCK!(block1, self.key_schedule);
+        DO_ENC_BLOCK!(block2, self.key_schedule);
+        DO_ENC_BLOCK!(block3, self.key_schedule);
+
+        unsafe {
+            vst1q_u8(data0.as_mut_ptr(), block0);
+            vst1q_u8(data1.as_mut_ptr(), block1);
+            vst1q_u8(data2.as_mut_ptr(), block2);
+            vst1q_u8(data3.as_mut_ptr(), block3);
         }
     }
 }

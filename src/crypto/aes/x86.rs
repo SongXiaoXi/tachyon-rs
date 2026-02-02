@@ -34,6 +34,15 @@ macro_rules! key_exp_128 {
 
 macro_rules! load_key_128 {
     ($key_schedule:expr, $key:expr) => {
+        load_key_128_enc!($key_schedule, $key);
+        crate::const_loop!(i, 1, 9, {
+            $key_schedule[10 + i] = _mm_aesimc_si128($key_schedule[10 - i]);
+        });
+    }
+}
+
+macro_rules! load_key_128_enc {
+    ($key_schedule:expr, $key:expr) => {
         let key = _mm_loadu_si128($key.as_ptr() as *const __m128i);
         $key_schedule[0] = key;
         $key_schedule[1] = key_exp_128!($key_schedule[0], 0x01);
@@ -46,10 +55,6 @@ macro_rules! load_key_128 {
         $key_schedule[8] = key_exp_128!($key_schedule[7], 0x80);
         $key_schedule[9] = key_exp_128!($key_schedule[8], 0x1b);
         $key_schedule[10] = key_exp_128!($key_schedule[9], 0x36);
-
-        crate::const_loop!(i, 1, 9, {
-            $key_schedule[10 + i] = _mm_aesimc_si128($key_schedule[10 - i]);
-        });
     }
 }
 
@@ -313,6 +318,7 @@ macro_rules! DO_DEC_BLOCK_256 {
 pub(crate) use key_expansion_128;
 pub(crate) use key_exp_128;
 pub(crate) use load_key_128;
+pub(crate) use load_key_128_enc;
 pub(crate) use DO_ENC_BLOCK;
 pub(crate) use DO_DEC_BLOCK;
 pub(crate) use DO_ENC_4_BLOCKS;
@@ -331,7 +337,18 @@ pub struct AES128 {
     key_schedule: [__m128i; 20],
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct AES128Encryptor {
+    key_schedule: [__m128i; 11],
+}
+
 impl AES128 {
+    pub const BLOCK_LEN: usize = 16;
+    pub const KEY_LEN: usize = 16;
+    pub(crate) const IS_SOFT: bool = false;
+}
+
+impl AES128Encryptor {
     pub const BLOCK_LEN: usize = 16;
     pub const KEY_LEN: usize = 16;
     pub(crate) const IS_SOFT: bool = false;
@@ -480,6 +497,75 @@ impl AES128 {
             let mut block = unsafe { crate::utils::slice_to_array_mut(chunk) };
             self.decrypt(&mut block);
         }
+    }
+}
+
+#[unsafe_target_feature("sse2,aes")]
+impl AES128Encryptor {
+    #[inline(always)]
+    pub fn new(key: [u8; 16]) -> Self {
+        let mut key_schedule = [unsafe { core::mem::zeroed() }; 11];
+        unsafe {
+            load_key_128_enc!(&mut key_schedule, &key);
+        }
+        Self { key_schedule }
+    }
+
+    #[inline(always)]
+    pub fn from_slice(key: &[u8]) -> Self {
+        assert_eq!(key.len(), 16);
+        Self::new(unsafe { *(key.as_ptr() as *const [u8; 16]) })
+    }
+
+    #[inline(always)]
+    pub fn encrypt(&self, data: &mut [u8; 16]) {
+        let mut block = unsafe { _mm_loadu_si128(data.as_ptr() as *const __m128i) };
+        DO_ENC_BLOCK!(block, self.key_schedule);
+        unsafe { _mm_storeu_si128(data.as_mut_ptr() as *mut __m128i, block) };
+    }
+
+    #[inline(always)]
+    pub fn encrypt_copy(&self, data: &[u8; 16], output: &mut [u8; 16]) {
+        let mut block = unsafe { _mm_loadu_si128(data.as_ptr() as *const __m128i) };
+        DO_ENC_BLOCK!(block, self.key_schedule);
+        unsafe { _mm_storeu_si128(output.as_mut_ptr() as *mut __m128i, block) };
+    }
+
+    #[inline(always)]
+    pub fn encrypt_simd(&self, mut block: __m128i) -> __m128i {
+        DO_ENC_BLOCK!(block, self.key_schedule);
+        block
+    }
+
+    #[inline(always)]
+    pub(crate) fn encrypt_4_blocks(
+        &self,
+        data0: &mut [u8; 16],
+        data1: &mut [u8; 16],
+        data2: &mut [u8; 16],
+        data3: &mut [u8; 16],
+    ) {
+        let mut block0 = unsafe { _mm_loadu_si128(data0.as_ptr() as *const __m128i) };
+        let mut block1 = unsafe { _mm_loadu_si128(data1.as_ptr() as *const __m128i) };
+        let mut block2 = unsafe { _mm_loadu_si128(data2.as_ptr() as *const __m128i) };
+        let mut block3 = unsafe { _mm_loadu_si128(data3.as_ptr() as *const __m128i) };
+        DO_ENC_4_BLOCKS!(block0, block1, block2, block3, self.key_schedule);
+        unsafe {
+            _mm_storeu_si128(data0.as_mut_ptr() as *mut __m128i, block0);
+            _mm_storeu_si128(data1.as_mut_ptr() as *mut __m128i, block1);
+            _mm_storeu_si128(data2.as_mut_ptr() as *mut __m128i, block2);
+            _mm_storeu_si128(data3.as_mut_ptr() as *mut __m128i, block3);
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn encrypt_4_blocks_xor(&self, data: [&[u8; 16]; 4], text: [&mut [u8; 16]; 4]) {
+        DO_ENC_BLOCKS_XOR!(4, data, text, self.key_schedule);
+    }
+
+    #[inline(always)]
+    pub(crate) fn encrypt_6_blocks_xor(&self, data: [&[u8; 16]; 6], text: [&mut [u8; 16]; 6]) {
+        DO_ENC_BLOCKS_XOR!(6, data, text, self.key_schedule);
     }
 }
 
