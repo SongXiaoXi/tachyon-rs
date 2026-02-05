@@ -926,25 +926,25 @@ impl_block_cipher_with_gcm_mode!(AES128GcmSoft, AES128Soft, GHashSoft, 16);
 
 cfg_if::cfg_if!{
     if #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] {
-        use crate::crypto::aes::x86::AES128 as AES128SSE;
+        use crate::crypto::aes::x86::AES128Encryptor as AES128SSE;
         use crate::crypto::ghash::x86::GHash as GHashSSE;
         impl_block_cipher_with_gcm_mode!(AES128GcmSSE, AES128SSE, GHashSSE, 16, "sse2,ssse3,aes,pclmulqdq");
         type AES128GcmHW = AES128GcmSSE;
-        use crate::crypto::aes::x86_avx::AES128 as AES128AVX;
+        use crate::crypto::aes::x86_avx::AES128Encryptor as AES128AVX;
         use crate::crypto::ghash::x86_avx::GHash as GHashAVX;
         impl_block_cipher_with_gcm_mode!(AES128GcmAVX, AES128AVX, GHashAVX, 16, "avx,aes,pclmulqdq");
         use crate::crypto::ghash::x86_avx2::GHash as GHashAVX2;
         impl_block_cipher_with_gcm_mode!(AES128GcmAVX2, AES128AVX, GHashAVX2, 16, "avx2,aes,pclmulqdq,bmi1,bmi2,movbe");
         #[cfg(avx512_feature)]
-        impl_block_cipher_with_gcm_mode!(AES128GcmAVX512, "avx512", crate::crypto::aes::x86_avx512::AES128, crate::crypto::ghash::x86_avx512::GHash, 16, "avx512f,avx512bw,avx512vl,vpclmulqdq,vaes");
+        impl_block_cipher_with_gcm_mode!(AES128GcmAVX512, "avx512", crate::crypto::aes::x86_avx512::AES128Encryptor, crate::crypto::ghash::x86_avx512::GHash, 16, "avx512f,avx512bw,avx512vl,vpclmulqdq,vaes");
     } else if #[cfg(target_arch = "aarch64")] {
-        use crate::crypto::aes::arm::AES128 as AES128Aarch64;
+        use crate::crypto::aes::arm::AES128Encryptor as AES128Aarch64;
         use crate::crypto::ghash::aarch64::GHash as GHashAarch64;
         impl_block_cipher_with_gcm_mode!(AES128GcmHW, AES128Aarch64, GHashAarch64, 16, "aes,neon");
         use crate::crypto::ghash::arm::GHash as GHashNEON;
         impl_block_cipher_with_gcm_mode!(AES128GcmNEON, AES128Soft, GHashNEON, 16, "neon");
     } else if #[cfg(target_arch = "arm")] {
-        use crate::crypto::aes::arm::AES128 as AES128Arm;
+        use crate::crypto::aes::arm::AES128Encryptor as AES128Arm;
         use crate::crypto::ghash::arm::GHash as GHashNEON;
         impl_block_cipher_with_gcm_mode!(AES128GcmHW, AES128Arm, GHashNEON, 16, "v8,aes,neon");
         impl_block_cipher_with_gcm_mode!(AES128GcmNEON, AES128Soft, GHashNEON, 16, "v7,neon");
@@ -1334,7 +1334,7 @@ mod tests {
             test_aes128_gcm_impl!(AES128GcmNEON);
         }
         #[cfg(target_arch = "arm")]
-        if crate::is_hw_feature_detected!("v8", "aes", "neon") {
+        if crate::is_hw_feature_detected!("aes", "neon") {
             test_aes128_gcm_impl!(AES128GcmHW);
         }
         test_aes128_gcm_impl!(AES128GcmDynamic);
