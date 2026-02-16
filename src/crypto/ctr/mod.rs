@@ -38,7 +38,21 @@ fn ctr128_inc_be_by(counter: &mut [u8; 16], n: u32) {
 }
 
 macro_rules! impl_block_cipher_with_ctr_mode {
-	($name:tt, $cipher:ty, $klen:expr$(, $feature:literal)?) => {
+	// Entry with @512block → 16-block (256-byte) AVX512 VAES bulk loop.
+	($name:tt, $cipher:ty, $klen:expr, $feature:literal; @512block) => {
+		impl_block_cipher_with_ctr_mode!(@body $name, $cipher, $klen, 512, $feature);
+	};
+	// Entry with @6block → 6-block bulk loop.
+	($name:tt, $cipher:ty, $klen:expr $(, $feature:literal)?; @6block) => {
+		impl_block_cipher_with_ctr_mode!(@body $name, $cipher, $klen, 6 $(, $feature)?);
+	};
+	// Entry without @6block → 4-block bulk loop (default).
+	($name:tt, $cipher:ty, $klen:expr $(, $feature:literal)?) => {
+		impl_block_cipher_with_ctr_mode!(@body $name, $cipher, $klen, 4 $(, $feature)?);
+	};
+
+	// ── Common implementation body ──────────────────────────────────────────
+	(@body $name:tt, $cipher:ty, $klen:expr, $bulk:tt $(, $feature:literal)?) => {
 		#[derive(Clone)]
 		pub struct $name {
 			cipher: $cipher,
@@ -110,28 +124,7 @@ macro_rules! impl_block_cipher_with_ctr_mode {
 					}
 				}
 
-				// Process full blocks. Prefer 4x blocks when possible.
-				while pos + 16 * 4 <= text_in_out.len() {
-					let c0 = *ctr;
-					let mut c1 = c0;
-					let mut c2 = c0;
-					let mut c3 = c0;
-					ctr128_inc_be(&mut c1);
-					ctr128_inc_be_by(&mut c2, 2);
-					ctr128_inc_be_by(&mut c3, 3);
-
-					let chunk = &mut text_in_out[pos..pos + 16 * 4];
-					// SAFETY: chunk is exactly 64 bytes.
-					let b0 = unsafe { &mut *(chunk.as_mut_ptr().add(0) as *mut [u8; 16]) };
-					let b1 = unsafe { &mut *(chunk.as_mut_ptr().add(16) as *mut [u8; 16]) };
-					let b2 = unsafe { &mut *(chunk.as_mut_ptr().add(32) as *mut [u8; 16]) };
-					let b3 = unsafe { &mut *(chunk.as_mut_ptr().add(48) as *mut [u8; 16]) };
-
-					self.cipher.encrypt_4_blocks_xor([&c0, &c1, &c2, &c3], [b0, b1, b2, b3]);
-
-					ctr128_inc_be_by(ctr, 4);
-					pos += 16 * 4;
-				}
+				impl_block_cipher_with_ctr_mode!(@bulk_loop, self, ctr, pos, text_in_out, $bulk);
 
 				while pos + 16 <= text_in_out.len() {
 					let mut keystream = *ctr;
@@ -159,6 +152,112 @@ macro_rules! impl_block_cipher_with_ctr_mode {
 			}
 		}
 	};
+
+	// 4-block bulk loop (default — soft backend)
+	(@bulk_loop, $self:expr, $ctr:expr, $pos:expr, $text:expr, 4) => {
+		while $pos + 16 * 4 <= $text.len() {
+			let c0 = *$ctr;
+			let mut c1 = c0;
+			let mut c2 = c0;
+			let mut c3 = c0;
+			ctr128_inc_be(&mut c1);
+			ctr128_inc_be_by(&mut c2, 2);
+			ctr128_inc_be_by(&mut c3, 3);
+
+			let chunk = &mut $text[$pos..$pos + 16 * 4];
+			let b0 = unsafe { &mut *(chunk.as_mut_ptr().add(0) as *mut [u8; 16]) };
+			let b1 = unsafe { &mut *(chunk.as_mut_ptr().add(16) as *mut [u8; 16]) };
+			let b2 = unsafe { &mut *(chunk.as_mut_ptr().add(32) as *mut [u8; 16]) };
+			let b3 = unsafe { &mut *(chunk.as_mut_ptr().add(48) as *mut [u8; 16]) };
+
+			$self.cipher.encrypt_4_blocks_xor([&c0, &c1, &c2, &c3], [b0, b1, b2, b3]);
+
+			ctr128_inc_be_by($ctr, 4);
+			$pos += 16 * 4;
+		}
+	};
+
+	// 6-block bulk loop (x86 SSE/AVX — better pipeline utilisation)
+	(@bulk_loop, $self:expr, $ctr:expr, $pos:expr, $text:expr, 6) => {
+		while $pos + 16 * 6 <= $text.len() {
+			let c0 = *$ctr;
+			let mut c1 = c0;
+			let mut c2 = c0;
+			let mut c3 = c0;
+			let mut c4 = c0;
+			let mut c5 = c0;
+			ctr128_inc_be(&mut c1);
+			ctr128_inc_be_by(&mut c2, 2);
+			ctr128_inc_be_by(&mut c3, 3);
+			ctr128_inc_be_by(&mut c4, 4);
+			ctr128_inc_be_by(&mut c5, 5);
+
+			let chunk = &mut $text[$pos..$pos + 16 * 6];
+			let b0 = unsafe { &mut *(chunk.as_mut_ptr().add(0) as *mut [u8; 16]) };
+			let b1 = unsafe { &mut *(chunk.as_mut_ptr().add(16) as *mut [u8; 16]) };
+			let b2 = unsafe { &mut *(chunk.as_mut_ptr().add(32) as *mut [u8; 16]) };
+			let b3 = unsafe { &mut *(chunk.as_mut_ptr().add(48) as *mut [u8; 16]) };
+			let b4 = unsafe { &mut *(chunk.as_mut_ptr().add(64) as *mut [u8; 16]) };
+			let b5 = unsafe { &mut *(chunk.as_mut_ptr().add(80) as *mut [u8; 16]) };
+
+			$self.cipher.encrypt_6_blocks_xor(
+				[&c0, &c1, &c2, &c3, &c4, &c5],
+				[b0, b1, b2, b3, b4, b5],
+			);
+
+			ctr128_inc_be_by($ctr, 6);
+			$pos += 16 * 6;
+		}
+
+		// Handle 4-block remainder (64..95 bytes left after 6-block loop).
+		while $pos + 16 * 4 <= $text.len() {
+			let c0 = *$ctr;
+			let mut c1 = c0;
+			let mut c2 = c0;
+			let mut c3 = c0;
+			ctr128_inc_be(&mut c1);
+			ctr128_inc_be_by(&mut c2, 2);
+			ctr128_inc_be_by(&mut c3, 3);
+
+			let chunk = &mut $text[$pos..$pos + 16 * 4];
+			let b0 = unsafe { &mut *(chunk.as_mut_ptr().add(0) as *mut [u8; 16]) };
+			let b1 = unsafe { &mut *(chunk.as_mut_ptr().add(16) as *mut [u8; 16]) };
+			let b2 = unsafe { &mut *(chunk.as_mut_ptr().add(32) as *mut [u8; 16]) };
+			let b3 = unsafe { &mut *(chunk.as_mut_ptr().add(48) as *mut [u8; 16]) };
+
+			$self.cipher.encrypt_4_blocks_xor([&c0, &c1, &c2, &c3], [b0, b1, b2, b3]);
+
+			ctr128_inc_be_by($ctr, 4);
+			$pos += 16 * 4;
+		}
+	};
+
+	// 16-block (256-byte) bulk loop — AVX512 VAES with 4×__m512i pipeline fill.
+	(@bulk_loop, $self:expr, $ctr:expr, $pos:expr, $text:expr, 512) => {
+		while $pos + 16 * 16 <= $text.len() {
+			let base = u128::from_be_bytes(*$ctr);
+			let mut counters = [[0u8; 64]; 4];
+			{
+				let ptr = counters.as_mut_ptr() as *mut u8;
+				let mut i = 0u32;
+				while i < 16 {
+					let c = base.wrapping_add(i as u128).to_be_bytes();
+					unsafe {
+						core::ptr::copy_nonoverlapping(c.as_ptr(), ptr.add(i as usize * 16), 16);
+					}
+					i += 1;
+				}
+			}
+			let text_chunk = unsafe {
+				&mut *($text.as_mut_ptr().add($pos) as *mut [[u8; 64]; 4])
+			};
+			$self.cipher.encrypt_blocks_xor_4x4(counters, text_chunk);
+			ctr128_inc_be_by($ctr, 16);
+			$pos += 16 * 16;
+		}
+		// Fall through to 6-block for remainder.
+		impl_block_cipher_with_ctr_mode!(@bulk_loop, $self, $ctr, $pos, $text, 6);
+	};
 }
 
 use crate::crypto::aes::soft::AES128 as AES128Soft;
@@ -171,15 +270,15 @@ cfg_if::cfg_if! {
 	if #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] {
 		use crate::crypto::aes::x86::AES128 as AES128SSE;
 		use crate::crypto::aes::x86::AES256 as AES256SSE;
-		impl_block_cipher_with_ctr_mode!(AES128CtrSSE, AES128SSE, 16, "sse2,aes");
-		impl_block_cipher_with_ctr_mode!(AES256CtrSSE, AES256SSE, 32, "sse2,aes");
+		impl_block_cipher_with_ctr_mode!(AES128CtrSSE, AES128SSE, 16, "sse2,aes"; @6block);
+		impl_block_cipher_with_ctr_mode!(AES256CtrSSE, AES256SSE, 32, "sse2,aes"; @6block);
 		type AES128CtrHW = AES128CtrSSE;
 		type AES256CtrHW = AES256CtrSSE;
 
 		use crate::crypto::aes::x86_avx::AES128 as AES128AVX;
 		use crate::crypto::aes::x86_avx::AES256 as AES256AVX;
-		impl_block_cipher_with_ctr_mode!(AES128CtrAVX, AES128AVX, 16, "avx,aes");
-		impl_block_cipher_with_ctr_mode!(AES256CtrAVX, AES256AVX, 32, "avx,aes");
+		impl_block_cipher_with_ctr_mode!(AES128CtrAVX, AES128AVX, 16, "avx,aes"; @6block);
+		impl_block_cipher_with_ctr_mode!(AES256CtrAVX, AES256AVX, 32, "avx,aes"; @6block);
 
 		#[cfg(avx512_feature)]
 		use crate::crypto::aes::x86_avx512::AES128 as AES128AVX512;
@@ -190,14 +289,16 @@ cfg_if::cfg_if! {
 			AES128CtrAVX512,
 			AES128AVX512,
 			16,
-			"avx512f,avx512bw,avx512vl,vaes"
+			"avx512f,avx512bw,avx512vl,vaes";
+			@512block
 		);
 		#[cfg(avx512_feature)]
 		impl_block_cipher_with_ctr_mode!(
 			AES256CtrAVX512,
 			AES256AVX512,
 			32,
-			"avx512f,avx512bw,avx512vl,vaes"
+			"avx512f,avx512bw,avx512vl,vaes";
+			@512block
 		);
 	} else if #[cfg(any(target_arch = "aarch64", target_arch = "arm"))] {
 		use crate::crypto::aes::arm::AES128 as AES128Arm;
