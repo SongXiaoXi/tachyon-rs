@@ -88,6 +88,52 @@ macro_rules! DO_ENC_BLOCKS_XOR_512 {
     };
 }
 
+#[allow(unused_macros)]
+macro_rules! DO_ENC_BLOCK_256_512 {
+    ($block:expr, $key:expr) => {
+        #[allow(unused_unsafe)]
+        unsafe {
+            $block = _mm512_xor_si512($block, _mm512_broadcast_i32x4($key[0]));
+            crate::const_loop!(i, 1, 13, {
+                $block = _mm512_aesenc_epi128($block, _mm512_broadcast_i32x4($key[i]));
+            });
+            $block = _mm512_aesenclast_epi128($block, _mm512_broadcast_i32x4($key[14]));
+        }
+    };
+}
+
+macro_rules! DO_ENC_BLOCKS_XOR_256_512 {
+    (4,$blocks:expr,$texts:expr,$key:expr) => {
+        let mut block0 = unsafe { _mm512_loadu_si512($blocks[0].as_ptr() as *const _) };
+        let mut block1 = unsafe { _mm512_loadu_si512($blocks[1].as_ptr() as *const _) };
+        let mut block2 = unsafe { _mm512_loadu_si512($blocks[2].as_ptr() as *const _) };
+        let mut block3 = unsafe { _mm512_loadu_si512($blocks[3].as_ptr() as *const _) };
+
+        block0 = _mm512_xor_si512(block0, _mm512_broadcast_i32x4($key[0]));
+        block1 = _mm512_xor_si512(block1, _mm512_broadcast_i32x4($key[0]));
+        block2 = _mm512_xor_si512(block2, _mm512_broadcast_i32x4($key[0]));
+        block3 = _mm512_xor_si512(block3, _mm512_broadcast_i32x4($key[0]));
+
+        crate::const_loop!(i, 1, 13, {
+            block0 = _mm512_aesenc_epi128(block0, _mm512_broadcast_i32x4($key[i]));
+            block1 = _mm512_aesenc_epi128(block1, _mm512_broadcast_i32x4($key[i]));
+            block2 = _mm512_aesenc_epi128(block2, _mm512_broadcast_i32x4($key[i]));
+            block3 = _mm512_aesenc_epi128(block3, _mm512_broadcast_i32x4($key[i]));
+        });
+        block0 = _mm512_aesenclast_epi128(block0, _mm512_xor_si512(_mm512_broadcast_i32x4($key[14]), _mm512_loadu_si512($texts[0].as_ptr() as *const _)));
+        block1 = _mm512_aesenclast_epi128(block1, _mm512_xor_si512(_mm512_broadcast_i32x4($key[14]), _mm512_loadu_si512($texts[1].as_ptr() as *const _)));
+        block2 = _mm512_aesenclast_epi128(block2, _mm512_xor_si512(_mm512_broadcast_i32x4($key[14]), _mm512_loadu_si512($texts[2].as_ptr() as *const _)));
+        block3 = _mm512_aesenclast_epi128(block3, _mm512_xor_si512(_mm512_broadcast_i32x4($key[14]), _mm512_loadu_si512($texts[3].as_ptr() as *const _)));
+
+        unsafe {
+            _mm512_storeu_si512($texts[0].as_mut_ptr() as *mut _, block0);
+            _mm512_storeu_si512($texts[1].as_mut_ptr() as *mut _, block1);
+            _mm512_storeu_si512($texts[2].as_mut_ptr() as *mut _, block2);
+            _mm512_storeu_si512($texts[3].as_mut_ptr() as *mut _, block3);
+        }
+    };
+}
+
 #[unsafe_target_feature("avx512f,vaes")]
 impl AES128 {
     #[inline(always)]
@@ -322,7 +368,7 @@ impl AES256 {
     pub(crate) const IS_SOFT: bool = false;
 }
 
-#[unsafe_target_feature("sse2,aes")]
+#[unsafe_target_feature("avx512f,vaes")]
 impl AES256 {
     #[inline(always)]
     pub fn new(key: [u8; 32]) -> Self {
@@ -338,7 +384,8 @@ impl AES256 {
         assert_eq!(key.len(), 32);
         Self::new(unsafe { *(key.as_ptr() as *const [u8; 32]) })
     }
-#[inline(always)]
+
+    #[inline(always)]
     pub fn encrypt(&self, data: &mut [u8; 16]) {
         let mut block = unsafe { _mm_loadu_si128(data.as_ptr() as *const __m128i) };
         DO_ENC_BLOCK_256!(block, self.key_schedule);
@@ -401,6 +448,44 @@ impl AES256 {
             _mm_storeu_si128(text[2].as_mut_ptr() as *mut __m128i, block2);
             _mm_storeu_si128(text[3].as_mut_ptr() as *mut __m128i, block3);
         }
+    }
+
+    #[inline(always)]
+    pub(crate) fn encrypt_6_blocks_xor(&self, data: [&[u8; 16]; 6], text: [&mut [u8; 16]; 6]) {
+        unsafe {
+            let mut block0 = _mm_loadu_si128(data[0].as_ptr() as *const __m128i);
+            let mut block1 = _mm_loadu_si128(data[1].as_ptr() as *const __m128i);
+            let mut block2 = _mm_loadu_si128(data[2].as_ptr() as *const __m128i);
+            let mut block3 = _mm_loadu_si128(data[3].as_ptr() as *const __m128i);
+            let mut block4 = _mm_loadu_si128(data[4].as_ptr() as *const __m128i);
+            let mut block5 = _mm_loadu_si128(data[5].as_ptr() as *const __m128i);
+
+            DO_ENC_BLOCK_256!(block0, self.key_schedule);
+            DO_ENC_BLOCK_256!(block1, self.key_schedule);
+            DO_ENC_BLOCK_256!(block2, self.key_schedule);
+            DO_ENC_BLOCK_256!(block3, self.key_schedule);
+            DO_ENC_BLOCK_256!(block4, self.key_schedule);
+            DO_ENC_BLOCK_256!(block5, self.key_schedule);
+
+            block0 = _mm_xor_si128(block0, _mm_loadu_si128(text[0].as_ptr() as *const __m128i));
+            block1 = _mm_xor_si128(block1, _mm_loadu_si128(text[1].as_ptr() as *const __m128i));
+            block2 = _mm_xor_si128(block2, _mm_loadu_si128(text[2].as_ptr() as *const __m128i));
+            block3 = _mm_xor_si128(block3, _mm_loadu_si128(text[3].as_ptr() as *const __m128i));
+            block4 = _mm_xor_si128(block4, _mm_loadu_si128(text[4].as_ptr() as *const __m128i));
+            block5 = _mm_xor_si128(block5, _mm_loadu_si128(text[5].as_ptr() as *const __m128i));
+
+            _mm_storeu_si128(text[0].as_mut_ptr() as *mut __m128i, block0);
+            _mm_storeu_si128(text[1].as_mut_ptr() as *mut __m128i, block1);
+            _mm_storeu_si128(text[2].as_mut_ptr() as *mut __m128i, block2);
+            _mm_storeu_si128(text[3].as_mut_ptr() as *mut __m128i, block3);
+            _mm_storeu_si128(text[4].as_mut_ptr() as *mut __m128i, block4);
+            _mm_storeu_si128(text[5].as_mut_ptr() as *mut __m128i, block5);
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn encrypt_blocks_xor_4x4(&self, data: [[u8; 64]; 4], text: &mut [[u8; 64]; 4]) {
+        DO_ENC_BLOCKS_XOR_256_512!(4, data, text, self.key_schedule);
     }
 }
 

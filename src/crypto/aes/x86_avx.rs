@@ -248,7 +248,7 @@ pub struct AES256 {
 }
 
 
-#[unsafe_target_feature("sse2,aes")]
+#[unsafe_target_feature("avx,aes")]
 impl AES256 {
     pub const BLOCK_LEN: usize = 16;
     pub const KEY_LEN: usize = 32;
@@ -331,6 +331,39 @@ impl AES256 {
             _mm_storeu_si128(text[1].as_mut_ptr() as *mut __m128i, block1);
             _mm_storeu_si128(text[2].as_mut_ptr() as *mut __m128i, block2);
             _mm_storeu_si128(text[3].as_mut_ptr() as *mut __m128i, block3);
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn encrypt_6_blocks_xor(&self, data: [&[u8; 16]; 6], text: [&mut [u8; 16]; 6]) {
+        unsafe {
+            let mut block0 = _mm_loadu_si128(data[0].as_ptr() as *const __m128i);
+            let mut block1 = _mm_loadu_si128(data[1].as_ptr() as *const __m128i);
+            let mut block2 = _mm_loadu_si128(data[2].as_ptr() as *const __m128i);
+            let mut block3 = _mm_loadu_si128(data[3].as_ptr() as *const __m128i);
+            let mut block4 = _mm_loadu_si128(data[4].as_ptr() as *const __m128i);
+            let mut block5 = _mm_loadu_si128(data[5].as_ptr() as *const __m128i);
+
+            DO_ENC_BLOCK_256!(block0, self.key_schedule);
+            DO_ENC_BLOCK_256!(block1, self.key_schedule);
+            DO_ENC_BLOCK_256!(block2, self.key_schedule);
+            DO_ENC_BLOCK_256!(block3, self.key_schedule);
+            DO_ENC_BLOCK_256!(block4, self.key_schedule);
+            DO_ENC_BLOCK_256!(block5, self.key_schedule);
+
+            block0 = _mm_xor_si128(block0, _mm_loadu_si128(text[0].as_ptr() as *const __m128i));
+            block1 = _mm_xor_si128(block1, _mm_loadu_si128(text[1].as_ptr() as *const __m128i));
+            block2 = _mm_xor_si128(block2, _mm_loadu_si128(text[2].as_ptr() as *const __m128i));
+            block3 = _mm_xor_si128(block3, _mm_loadu_si128(text[3].as_ptr() as *const __m128i));
+            block4 = _mm_xor_si128(block4, _mm_loadu_si128(text[4].as_ptr() as *const __m128i));
+            block5 = _mm_xor_si128(block5, _mm_loadu_si128(text[5].as_ptr() as *const __m128i));
+
+            _mm_storeu_si128(text[0].as_mut_ptr() as *mut __m128i, block0);
+            _mm_storeu_si128(text[1].as_mut_ptr() as *mut __m128i, block1);
+            _mm_storeu_si128(text[2].as_mut_ptr() as *mut __m128i, block2);
+            _mm_storeu_si128(text[3].as_mut_ptr() as *mut __m128i, block3);
+            _mm_storeu_si128(text[4].as_mut_ptr() as *mut __m128i, block4);
+            _mm_storeu_si128(text[5].as_mut_ptr() as *mut __m128i, block5);
         }
     }
 }

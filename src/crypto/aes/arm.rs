@@ -808,6 +808,51 @@ impl AES256 {
             vst1q_u8(text[3].as_mut_ptr(), block3);
         }
     }
+
+    #[inline(always)]
+    pub(crate) fn encrypt_6_blocks_xor(&self, data: [&[u8; 16]; 6], text: [&mut [u8; 16]; 6]) {
+        let mut block0 = unsafe { vld1q_u8(data[0].as_ptr()) };
+        let mut block1 = unsafe { vld1q_u8(data[1].as_ptr()) };
+        let mut block2 = unsafe { vld1q_u8(data[2].as_ptr()) };
+        let mut block3 = unsafe { vld1q_u8(data[3].as_ptr()) };
+        let mut block4 = unsafe { vld1q_u8(data[4].as_ptr()) };
+        let mut block5 = unsafe { vld1q_u8(data[5].as_ptr()) };
+
+        unsafe {
+            // First round
+            block0 = vaeseq_u8(block0, self.key_schedule[0]);
+            block1 = vaeseq_u8(block1, self.key_schedule[0]);
+            block2 = vaeseq_u8(block2, self.key_schedule[0]);
+            block3 = vaeseq_u8(block3, self.key_schedule[0]);
+            block4 = vaeseq_u8(block4, self.key_schedule[0]);
+            block5 = vaeseq_u8(block5, self.key_schedule[0]);
+
+            // Middle rounds (1..13)
+            crate::const_loop!(i, 1, 13, {
+                block0 = vaeseq_u8(vaesmcq_u8(block0), self.key_schedule[i]);
+                block1 = vaeseq_u8(vaesmcq_u8(block1), self.key_schedule[i]);
+                block2 = vaeseq_u8(vaesmcq_u8(block2), self.key_schedule[i]);
+                block3 = vaeseq_u8(vaesmcq_u8(block3), self.key_schedule[i]);
+                block4 = vaeseq_u8(vaesmcq_u8(block4), self.key_schedule[i]);
+                block5 = vaeseq_u8(vaesmcq_u8(block5), self.key_schedule[i]);
+            });
+
+            // Last round: xor final round key and xor plaintext in place.
+            block0 = veorq_u8(block0, veorq_u8(self.key_schedule[14], vld1q_u8(text[0].as_ptr())));
+            block1 = veorq_u8(block1, veorq_u8(self.key_schedule[14], vld1q_u8(text[1].as_ptr())));
+            block2 = veorq_u8(block2, veorq_u8(self.key_schedule[14], vld1q_u8(text[2].as_ptr())));
+            block3 = veorq_u8(block3, veorq_u8(self.key_schedule[14], vld1q_u8(text[3].as_ptr())));
+            block4 = veorq_u8(block4, veorq_u8(self.key_schedule[14], vld1q_u8(text[4].as_ptr())));
+            block5 = veorq_u8(block5, veorq_u8(self.key_schedule[14], vld1q_u8(text[5].as_ptr())));
+
+            vst1q_u8(text[0].as_mut_ptr(), block0);
+            vst1q_u8(text[1].as_mut_ptr(), block1);
+            vst1q_u8(text[2].as_mut_ptr(), block2);
+            vst1q_u8(text[3].as_mut_ptr(), block3);
+            vst1q_u8(text[4].as_mut_ptr(), block4);
+            vst1q_u8(text[5].as_mut_ptr(), block5);
+        }
+    }
 }
 
 
