@@ -4,6 +4,11 @@ use core::mem::ManuallyDrop;
 #[allow(unused_imports)]
 use unsafe_target_feature::unsafe_target_feature;
 
+#[cfg(target_arch = "x86")]
+use core::arch::x86::*;
+#[cfg(target_arch = "x86_64")]
+use core::arch::x86_64::*;
+
 pub const NONCE_LEN: usize = 16;
 
 #[derive(Clone, Copy)]
@@ -233,7 +238,61 @@ macro_rules! impl_block_cipher_with_ctr_mode {
 	};
 
 	// 16-block (256-byte) bulk loop — AVX512 VAES with 4×__m512i pipeline fill.
+	// SIMD counter generation: bswap → vpaddd per-lane offsets → bswap back.
+	// Replaces 16× scalar u128 add+bswap with 4× vpaddd + 4× vpshufb.
 	(@bulk_loop, $self:expr, $ctr:expr, $pos:expr, $text:expr, 512) => {
+		#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+		unsafe {
+			// Full 128-bit byte-swap shuffle mask.
+			let bswap_xmm = _mm_set_epi8(0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15);
+			let bswap_zmm = _mm512_broadcast_i32x4(bswap_xmm);
+
+			// Load current counter, byte-swap to native LE, broadcast to all zmm lanes.
+			let mut base_le = _mm512_broadcast_i32x4(
+				_mm_shuffle_epi8(
+					_mm_loadu_si128($ctr.as_ptr() as *const _),
+					bswap_xmm,
+				)
+			);
+
+			// Per-lane counter offsets: offset in dword-0 of each 128-bit lane.
+			// _mm512_set_epi32 order: e15 (high) → e0 (low).
+			let off_0_3   = _mm512_set_epi32(0,0,0, 3,  0,0,0, 2,  0,0,0, 1,  0,0,0, 0);
+			let off_4_7   = _mm512_set_epi32(0,0,0, 7,  0,0,0, 6,  0,0,0, 5,  0,0,0, 4);
+			let off_8_11  = _mm512_set_epi32(0,0,0,11,  0,0,0,10,  0,0,0, 9,  0,0,0, 8);
+			let off_12_15 = _mm512_set_epi32(0,0,0,15,  0,0,0,14,  0,0,0,13,  0,0,0,12);
+			let delta_16  = _mm512_broadcast_i32x4(_mm_setr_epi32(16, 0, 0, 0));
+
+			while $pos + 16 * 16 <= $text.len() {
+				// Prefetch next chunk of plaintext into L1.
+				_mm_prefetch($text.as_ptr().add($pos + 16 * 16)       as *const _, _MM_HINT_T0);
+				_mm_prefetch($text.as_ptr().add($pos + 16 * 16 + 64)  as *const _, _MM_HINT_T0);
+				_mm_prefetch($text.as_ptr().add($pos + 16 * 16 + 128) as *const _, _MM_HINT_T0);
+				_mm_prefetch($text.as_ptr().add($pos + 16 * 16 + 192) as *const _, _MM_HINT_T0);
+
+				// Generate 16 BE counter blocks as 4 × __m512i.
+				let mut counters = core::mem::MaybeUninit::<[[u8; 64]; 4]>::uninit();
+				let cp = counters.as_mut_ptr() as *mut u8;
+				_mm512_storeu_si512(cp           as *mut _, _mm512_shuffle_epi8(_mm512_add_epi32(base_le, off_0_3),   bswap_zmm));
+				_mm512_storeu_si512(cp.add(64)   as *mut _, _mm512_shuffle_epi8(_mm512_add_epi32(base_le, off_4_7),   bswap_zmm));
+				_mm512_storeu_si512(cp.add(128)  as *mut _, _mm512_shuffle_epi8(_mm512_add_epi32(base_le, off_8_11),  bswap_zmm));
+				_mm512_storeu_si512(cp.add(192)  as *mut _, _mm512_shuffle_epi8(_mm512_add_epi32(base_le, off_12_15), bswap_zmm));
+
+				let text_chunk = &mut *($text.as_mut_ptr().add($pos) as *mut [[u8; 64]; 4]);
+				$self.cipher.encrypt_blocks_xor_4x4(counters.assume_init(), text_chunk);
+
+				// Advance base counter by 16 in native LE — stays in register.
+				base_le = _mm512_add_epi32(base_le, delta_16);
+				$pos += 16 * 16;
+			}
+
+			// Write back updated counter (bswap LE → BE).
+			_mm_storeu_si128(
+				$ctr.as_mut_ptr() as *mut _,
+				_mm_shuffle_epi8(_mm512_castsi512_si128(base_le), bswap_xmm),
+			);
+		}
+		#[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
 		while $pos + 16 * 16 <= $text.len() {
 			let base = u128::from_be_bytes(*$ctr);
 			let mut counters = [[0u8; 64]; 4];
