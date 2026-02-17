@@ -491,6 +491,7 @@ mod tests {
             return;
         }
         use rand::Rng;
+        use rand::RngExt;
         let mut rng = rand::rng();
         let mut a_arr = [0u8; 64];
         let mut b_arr = [0u8; 64];
