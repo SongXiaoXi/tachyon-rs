@@ -17,8 +17,8 @@ pub mod x86_avx_bmi;
 cfg_if::cfg_if! {
     if #[cfg(all(target_arch = "aarch64", target_feature = "neon", target_feature = "sha3"))] {
         pub use aarch64_ni::*;
-    } else if #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "ssse3", target_feature = "avx"))] {
-        pub use x86_avx::*;
+    } else if #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "ssse3", target_feature = "avx", target_feature = "bmi1", target_feature = "bmi2"))] {
+        pub use x86_avx_bmi::*;
     } else {
         pub use dynamic::*;
     }
