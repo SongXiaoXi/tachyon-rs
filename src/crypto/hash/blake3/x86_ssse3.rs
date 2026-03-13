@@ -1,3 +1,5 @@
+// BLAKE3 – x86/x86_64 128-bit SIMD (SSSE3 / AVX shared implementation).
+
 #[cfg(target_arch = "x86")]
 use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
@@ -1037,5 +1039,5 @@ blake3_impl!(transform, transform_inline, hash_4_chunks, 4;
 mod tests {
     use super::Blake3;
 
-    blake3_test_case!();
+    blake3_test_case!(require_hw: "x86" => ("ssse3"), "x86_64" => ("ssse3"));
 }
