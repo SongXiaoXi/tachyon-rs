@@ -55,6 +55,7 @@ ring = "*"
 rand = "*"
 md5 = "*"
 data-encoding = { version = "2" }
+blake3 = "*"
 
 [lints.rust.unexpected_cfgs]
 level = "warn"
