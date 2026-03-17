@@ -426,6 +426,26 @@ impl AES256 {
     }
 
     #[inline(always)]
+    pub fn encrypt_4_blocks(&self, data0: &mut [u8; 16], data1: &mut [u8; 16], data2: &mut [u8; 16], data3: &mut [u8; 16]) {
+        let mut block0 = unsafe { _mm_loadu_si128(data0.as_ptr() as *const __m128i) };
+        let mut block1 = unsafe { _mm_loadu_si128(data1.as_ptr() as *const __m128i) };
+        let mut block2 = unsafe { _mm_loadu_si128(data2.as_ptr() as *const __m128i) };
+        let mut block3 = unsafe { _mm_loadu_si128(data3.as_ptr() as *const __m128i) };
+
+        DO_ENC_BLOCK_256!(block0, self.key_schedule);
+        DO_ENC_BLOCK_256!(block1, self.key_schedule);
+        DO_ENC_BLOCK_256!(block2, self.key_schedule);
+        DO_ENC_BLOCK_256!(block3, self.key_schedule);
+
+        unsafe {
+            _mm_storeu_si128(data0.as_mut_ptr() as *mut __m128i, block0);
+            _mm_storeu_si128(data1.as_mut_ptr() as *mut __m128i, block1);
+            _mm_storeu_si128(data2.as_mut_ptr() as *mut __m128i, block2);
+            _mm_storeu_si128(data3.as_mut_ptr() as *mut __m128i, block3);
+        }
+    }
+
+    #[inline(always)]
     pub(crate) fn encrypt_4_blocks_xor(&self, data: [&[u8; 16]; 4], text: [&mut [u8; 16]; 4]) {
         unsafe {
             let mut block0 = _mm_loadu_si128(data[0].as_ptr() as *const __m128i);

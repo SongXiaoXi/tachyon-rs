@@ -604,6 +604,7 @@ impl AES256 {
 
     pub const BLOCK_LEN: usize = 16;
     pub const KEY_LEN: usize = 32;
+    pub(crate) const IS_SOFT: bool = true;
 
     #[inline(always)]
     pub fn new(key: [u8; 32]) -> Self {
@@ -626,6 +627,12 @@ impl AES256 {
             rk[i] = rk[i - 8] ^ t;
         }
         Self { rk }
+    }
+
+    #[inline(always)]
+    pub fn from_slice(key: &[u8]) -> Self {
+        assert_eq!(key.len(), 32);
+        Self::new(unsafe { *crate::utils::slice_to_array(key) })
     }
 
     fn encrypt_block(&self, block: &mut [u8; 16]) {
@@ -655,6 +662,14 @@ impl AES256 {
     pub fn encrypt_copy(&self, data: &[u8; 16], output: &mut [u8; 16]) {
         *output = *data;
         self.encrypt_block(output);
+    }
+
+    #[inline(always)]
+    pub fn encrypt_4_blocks(&self, data0: &mut [u8; 16], data1: &mut [u8; 16], data2: &mut [u8; 16], data3: &mut [u8; 16]) {
+        self.encrypt(data0);
+        self.encrypt(data1);
+        self.encrypt(data2);
+        self.encrypt(data3);
     }
 
     fn decrypt_block(&self, block: &mut [u8; 16]) {
@@ -700,6 +715,11 @@ impl AES256 {
         crate::utils::portable::xor_si128_inplace(text[1], &b1);
         crate::utils::portable::xor_si128_inplace(text[2], &b2);
         crate::utils::portable::xor_si128_inplace(text[3], &b3);
+    }
+
+    #[inline(always)]
+    pub(crate) fn encrypt_6_blocks_xor(&self, _data: [&[u8; 16]; 6], _text: [&mut [u8; 16]; 6]) {
+        unimplemented!();
     }
 }
 

@@ -749,6 +749,26 @@ impl AES256 {
     }
 
     #[inline(always)]
+    pub fn encrypt_4_blocks(&self, data0: &mut [u8; 16], data1: &mut [u8; 16], data2: &mut [u8; 16], data3: &mut [u8; 16]) {
+        let mut block0 = unsafe { vld1q_u8(data0.as_ptr()) };
+        let mut block1 = unsafe { vld1q_u8(data1.as_ptr()) };
+        let mut block2 = unsafe { vld1q_u8(data2.as_ptr()) };
+        let mut block3 = unsafe { vld1q_u8(data3.as_ptr()) };
+
+        DO_ENC_BLOCK_256!(block0, self.key_schedule);
+        DO_ENC_BLOCK_256!(block1, self.key_schedule);
+        DO_ENC_BLOCK_256!(block2, self.key_schedule);
+        DO_ENC_BLOCK_256!(block3, self.key_schedule);
+
+        unsafe {
+            vst1q_u8(data0.as_mut_ptr(), block0);
+            vst1q_u8(data1.as_mut_ptr(), block1);
+            vst1q_u8(data2.as_mut_ptr(), block2);
+            vst1q_u8(data3.as_mut_ptr(), block3);
+        }
+    }
+
+    #[inline(always)]
     pub fn encrypt_simd(&self, mut block: uint8x16_t) -> uint8x16_t {
         DO_ENC_BLOCK_256!(block, self.key_schedule);
         block
