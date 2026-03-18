@@ -34,6 +34,7 @@ More examples can be found in the [bench](bench) directory.
 
 #### Block Ciphers
 - `AES-128`
+- `AES-256`
 
 #### Block Cipher Modes
 - `AES-128-CTR`
@@ -48,6 +49,7 @@ More examples can be found in the [bench](bench) directory.
 
 #### AEAD
 - `AES-128-GCM`
+- `AES-256-GCM`
 - `ChaCha20-Poly1305`
 
 #### Hash Functions
@@ -85,6 +87,7 @@ More examples can be found in the [bench](bench) directory.
 | Apple A16      | 1240.64 MiB/s   | **1967.34 MiB/s** | 1738.82 MiB/s  | 1932.54 MiB/s(3.2.1) |
 | Snapdragon 888 | **1445.22 MiB/s**   | N/A     | 1325.19 MiB/s | 1277.12 MiB/s(3.4.1) |
 | Snapdragon 6Gen1 | **864.11 MiB/s** | N/A     | 759.92 MiB/s  | 654.70 MiB/s(3.4.1) |
+| BCM2711 (RPi4) | **308.49 MiB/s**   | N/A     | 214.92 MiB/s  | 266.62 MiB/s(3.6.1) |
 | i7-3770        | 1121.77 MiB/s   | N/A     | **1151.09 MiB/s**  | 1105.63 MiB/s(3.4.1) |
 | Ryzen 9 9950X | 4121.26 MiB/s   | N/A     | 3714.02 MiB/s  | **6900.42 MiB/s**(3.4.1) |
 | Ryzen Z1 Extreme | 4180.23 MiB/s   | N/A     | 3587.13 MiB/s  | **4388.11 MiB/s**(3.5.0) |

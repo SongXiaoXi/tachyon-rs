@@ -259,7 +259,7 @@ macro_rules! impl_block_cipher_with_gcm_mode {
             pub const N_MAX: usize = Self::NONCE_LEN;
 
             #[inline]
-            pub fn new(key: [u8; 16]) -> Self {
+            pub fn new(key: [u8; <$cipher>::KEY_LEN]) -> Self {
                 // NOTE: GCM works only with block ciphers that have a block size of 16 bytes.
                 assert_eq!(Self::BLOCK_LEN, GCM_BLOCK_LEN);
                 assert_eq!(Self::BLOCK_LEN, <$ghash>::BLOCK_LEN);
@@ -918,50 +918,71 @@ macro_rules! impl_block_cipher_with_gcm_mode {
 }
 
 use crate::crypto::aes::soft::AES128 as AES128Soft;
+use crate::crypto::aes::soft::AES256 as AES256Soft;
 use crate::crypto::ghash::soft::GHash as GHashSoft;
 
 #[allow(unused_imports)]
 use unsafe_target_feature::unsafe_target_feature;
 impl_block_cipher_with_gcm_mode!(AES128GcmSoft, AES128Soft, GHashSoft, 16);
+impl_block_cipher_with_gcm_mode!(AES256GcmSoft, AES256Soft, GHashSoft, 16);
 
 cfg_if::cfg_if!{
     if #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] {
         use crate::crypto::aes::x86::AES128Encryptor as AES128SSE;
+        use crate::crypto::aes::x86::AES256 as AES256SSE;
         use crate::crypto::ghash::x86::GHash as GHashSSE;
         impl_block_cipher_with_gcm_mode!(AES128GcmSSE, AES128SSE, GHashSSE, 16, "sse2,ssse3,aes,pclmulqdq");
+        impl_block_cipher_with_gcm_mode!(AES256GcmSSE, AES256SSE, GHashSSE, 16, "sse2,ssse3,aes,pclmulqdq");
         type AES128GcmHW = AES128GcmSSE;
+        type AES256GcmHW = AES256GcmSSE;
         use crate::crypto::aes::x86_avx::AES128Encryptor as AES128AVX;
+        use crate::crypto::aes::x86_avx::AES256 as AES256AVX;
         use crate::crypto::ghash::x86_avx::GHash as GHashAVX;
         impl_block_cipher_with_gcm_mode!(AES128GcmAVX, AES128AVX, GHashAVX, 16, "avx,aes,pclmulqdq");
+        impl_block_cipher_with_gcm_mode!(AES256GcmAVX, AES256AVX, GHashAVX, 16, "avx,aes,pclmulqdq");
         use crate::crypto::ghash::x86_avx2::GHash as GHashAVX2;
         impl_block_cipher_with_gcm_mode!(AES128GcmAVX2, AES128AVX, GHashAVX2, 16, "avx2,aes,pclmulqdq,bmi1,bmi2,movbe");
+        impl_block_cipher_with_gcm_mode!(AES256GcmAVX2, AES256AVX, GHashAVX2, 16, "avx2,aes,pclmulqdq,bmi1,bmi2,movbe");
         #[cfg(avx512_feature)]
         impl_block_cipher_with_gcm_mode!(AES128GcmAVX512, "avx512", crate::crypto::aes::x86_avx512::AES128Encryptor, crate::crypto::ghash::x86_avx512::GHash, 16, "avx512f,avx512bw,avx512vl,vpclmulqdq,vaes");
+        #[cfg(avx512_feature)]
+        impl_block_cipher_with_gcm_mode!(AES256GcmAVX512, "avx512", crate::crypto::aes::x86_avx512::AES256, crate::crypto::ghash::x86_avx512::GHash, 16, "avx512f,avx512bw,avx512vl,vpclmulqdq,vaes");
     } else if #[cfg(target_arch = "aarch64")] {
         use crate::crypto::aes::arm::AES128Encryptor as AES128Aarch64;
+        use crate::crypto::aes::arm::AES256 as AES256Aarch64;
         use crate::crypto::ghash::aarch64::GHash as GHashAarch64;
         impl_block_cipher_with_gcm_mode!(AES128GcmHW, AES128Aarch64, GHashAarch64, 16, "aes,neon");
+        impl_block_cipher_with_gcm_mode!(AES256GcmHW, AES256Aarch64, GHashAarch64, 16, "aes,neon");
         use crate::crypto::ghash::arm::GHash as GHashNEON;
         impl_block_cipher_with_gcm_mode!(AES128GcmNEON, AES128Soft, GHashNEON, 16, "neon");
+        impl_block_cipher_with_gcm_mode!(AES256GcmNEON, AES256Soft, GHashNEON, 16, "neon");
     } else if #[cfg(target_arch = "arm")] {
         use crate::crypto::aes::arm::AES128Encryptor as AES128Arm;
+        use crate::crypto::aes::arm::AES256 as AES256Arm;
         use crate::crypto::ghash::arm::GHash as GHashNEON;
         impl_block_cipher_with_gcm_mode!(AES128GcmHW, AES128Arm, GHashNEON, 16, "v8,aes,neon");
+        impl_block_cipher_with_gcm_mode!(AES256GcmHW, AES256Arm, GHashNEON, 16, "v8,aes,neon");
         impl_block_cipher_with_gcm_mode!(AES128GcmNEON, AES128Soft, GHashNEON, 16, "v7,neon");
+        impl_block_cipher_with_gcm_mode!(AES256GcmNEON, AES256Soft, GHashNEON, 16, "v7,neon");
     }
 }
 
 cfg_if::cfg_if! {
     if #[cfg(all(avx512_feature, any(target_arch = "x86", target_arch = "x86_64"), target_feature = "vaes", target_feature = "vpclmulqdq", target_feature = "avx512f", target_feature = "avx512vl", target_feature = "avx512bw"))] {
         pub type AES128Gcm = AES128GcmAVX512;
+        pub type AES256Gcm = AES256GcmAVX512;
     } else if #[cfg(all(not(avx512_feature), any(target_arch = "x86", target_arch = "x86_64"), target_feature = "avx2", target_feature = "aes", target_feature = "pclmulqdq", target_feature = "bmi1", target_feature = "bmi2", target_feature = "movbe"))] {
         pub type AES128Gcm = AES128GcmAVX2;
+        pub type AES256Gcm = AES256GcmAVX2;
     } else if #[cfg(all(target_arch = "aarch64", target_feature = "neon", target_feature = "aes"))] {
         pub type AES128Gcm = AES128GcmHW;
+        pub type AES256Gcm = AES256GcmHW;
     } else if #[cfg(all(target_arch = "arm", target_feature = "neon", target_feature = "aes"))] {
         pub type AES128Gcm = AES128GcmHW;
+        pub type AES256Gcm = AES256GcmHW;
     } else {
         pub type AES128Gcm = AES128GcmDynamic;
+        pub type AES256Gcm = AES256GcmDynamic;
     }
 }
 
@@ -980,9 +1001,75 @@ pub union AES128GcmDynamic {
     sw: ManuallyDrop<AES128GcmSoft>,
 }
 
+pub union AES256GcmDynamic {
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64", target_arch = "arm"))]
+    hw: ManuallyDrop<AES256GcmHW>,
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    avx: ManuallyDrop<AES256GcmAVX>,
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    avx2: ManuallyDrop<AES256GcmAVX2>,
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    #[cfg(avx512_feature)]
+    avx512: ManuallyDrop<AES256GcmAVX512>,
+    #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
+    neon: ManuallyDrop<AES256GcmNEON>,
+    sw: ManuallyDrop<AES256GcmSoft>,
+}
+
 // x86: 0 - vex aes-ni, 1 - sse aes-ni, 2 - soft, 3 - avx512, 4 - avx2
 // arm/aarch64: 0 - aes-ni, 1 - neon, 2 - soft
-static mut AES_128_GCM_IDX: u32 = u32::MAX;
+static mut AES_GCM_IDX: u32 = u32::MAX;
+
+#[inline(always)]
+unsafe fn get_aes_gcm_idx() -> u32 {
+    {
+            if AES_GCM_IDX == u32::MAX {
+                if cfg!(avx512_feature) && crate::is_hw_feature_detected!(
+                    "x86" => ("avx512f", "avx512bw", "avx512vl", "vaes", "vpclmulqdq"),
+                    "x86_64" => ("avx512f", "avx512bw", "avx512vl", "vaes", "vpclmulqdq"),
+                ) {
+                    AES_GCM_IDX = 3;
+                } else if crate::is_hw_feature_detected!(
+                    "x86" => ("pclmulqdq", "aes", "sse2", "ssse3"),
+                    "x86_64" => ("pclmulqdq", "aes", "sse2", "ssse3"),
+                    "aarch64" => ("neon"),
+                    "arm" => ("neon"),
+                ) {
+                    AES_GCM_IDX = 1;
+                    if crate::is_hw_feature_detected!(
+                        "x86" => ("avx"),
+                        "x86_64" => ("avx"),
+                        "aarch64" => ("aes"),
+                        "arm" => ("aes"),
+                    ) {
+                        AES_GCM_IDX = 0;
+                        if crate::is_hw_feature_detected!(
+                            "x86" => ("avx2", "bmi2", "movbe"),
+                            "x86_64" => ("avx2", "bmi2", "movbe"),
+                        ) {
+                            AES_GCM_IDX = 4;
+                        }
+                    }
+                } else {
+                    AES_GCM_IDX = 2;
+                }
+            }
+            AES_GCM_IDX
+    }
+}
+
+/// Returns true if AES-GCM is accelerated by hardware, and faster than CHACHA20-POLY1305 on the current platform.
+#[inline(always)]
+pub fn aes_gcm_is_faster_than_chacha20_poly1305() -> bool {
+    unsafe {
+        let idx = get_aes_gcm_idx();
+        if cfg!(any(target_arch = "arm", target_arch = "aarch64")) {
+            idx != 1 && idx != 2
+        } else {
+            idx != 2
+        }
+    }
+}
 
 impl AES128GcmDynamic {
     pub const KEY_LEN: usize = 16;
@@ -992,38 +1079,7 @@ impl AES128GcmDynamic {
 
     pub fn new(key: [u8; Self::KEY_LEN]) -> Self {
         unsafe {
-            if AES_128_GCM_IDX == u32::MAX {
-                if cfg!(avx512_feature) && crate::is_hw_feature_detected!(
-                    "x86" => ("avx512f", "avx512bw", "avx512vl", "vaes", "vpclmulqdq"),
-                    "x86_64" => ("avx512f", "avx512bw", "avx512vl", "vaes", "vpclmulqdq"),
-                ) {
-                    AES_128_GCM_IDX = 3;
-                } else if crate::is_hw_feature_detected!(
-                    "x86" => ("pclmulqdq", "aes", "sse2", "ssse3"),
-                    "x86_64" => ("pclmulqdq", "aes", "sse2", "ssse3"),
-                    "aarch64" => ("neon"),
-                    "arm" => ("neon"),
-                ) {
-                    AES_128_GCM_IDX = 1;
-                    if crate::is_hw_feature_detected!(
-                        "x86" => ("avx"),
-                        "x86_64" => ("avx"),
-                        "aarch64" => ("aes"),
-                        "arm" => ("aes"),
-                    ) {
-                        AES_128_GCM_IDX = 0;
-                        if crate::is_hw_feature_detected!(
-                            "x86" => ("avx2", "bmi2", "movbe"),
-                            "x86_64" => ("avx2", "bmi2", "movbe"),
-                        ) {
-                            AES_128_GCM_IDX = 4;
-                        }
-                    }
-                } else {
-                    AES_128_GCM_IDX = 2;
-                }
-            }
-            match AES_128_GCM_IDX {
+            match get_aes_gcm_idx() {
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 0 => AES128GcmDynamic {
                     avx: ManuallyDrop::new(AES128GcmAVX::new(key)),
@@ -1067,7 +1123,7 @@ impl AES128GcmDynamic {
     #[inline(never)]
     pub fn encrypt_slice(&self, nonce: &[u8; NONCE_LEN], aad: &[u8], aead_pkt: &mut [u8]) {
         unsafe {
-            match AES_128_GCM_IDX {
+            match get_aes_gcm_idx() {
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 0 => self.avx.encrypt_slice(nonce, aad, aead_pkt),
                 #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
@@ -1090,7 +1146,7 @@ impl AES128GcmDynamic {
     #[inline(never)]
     pub fn decrypt_slice(&self, nonce: &[u8; NONCE_LEN], aad: &[u8], aead_pkt: &mut [u8]) -> bool {
         unsafe {
-            match AES_128_GCM_IDX {
+            match get_aes_gcm_idx() {
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 0 => self.avx.decrypt_slice(nonce, aad, aead_pkt),
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -1119,7 +1175,7 @@ impl AES128GcmDynamic {
         ciphertext_and_tag_out: &mut [u8],
     ) {
         unsafe {
-            match AES_128_GCM_IDX {
+            match get_aes_gcm_idx() {
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 0 => self.avx.encrypt_slice_oop(nonce, aad, plaintext_in, ciphertext_and_tag_out),
                 #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
@@ -1149,7 +1205,7 @@ impl AES128GcmDynamic {
         tag_out: &mut [u8; Self::TAG_LEN],
     ) {
         unsafe {
-            match AES_128_GCM_IDX {
+            match get_aes_gcm_idx() {
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 0 => self.avx.encrypt_slice_detached_oop(nonce, aad, plaintext_in, ciphertext_out, tag_out),
                 #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
@@ -1178,7 +1234,7 @@ impl AES128GcmDynamic {
         tag_out: &mut [u8; 16],
     ) {
         unsafe {
-            match AES_128_GCM_IDX {
+            match get_aes_gcm_idx() {
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 0 => self.avx.encrypt_slice_detached(nonce, aad, plaintext_in_ciphertext_out, tag_out),
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -1207,7 +1263,7 @@ impl AES128GcmDynamic {
         tag_in: &[u8; 16],
     ) -> bool {
         unsafe {
-            match AES_128_GCM_IDX {
+            match get_aes_gcm_idx() {
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 0 => self.avx.decrypt_slice_detached(nonce, aad, ciphertext_in_plaintext_out, tag_in),
                 #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
@@ -1232,7 +1288,245 @@ impl Drop for AES128GcmDynamic {
     #[inline]
     fn drop(&mut self) {
         unsafe {
-            match AES_128_GCM_IDX {
+            match get_aes_gcm_idx() {
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                0 => ManuallyDrop::drop(&mut self.avx),
+                #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
+                0 => ManuallyDrop::drop(&mut self.hw),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                1 => ManuallyDrop::drop(&mut self.hw),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                4 => ManuallyDrop::drop(&mut self.avx2),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                #[cfg(avx512_feature)]
+                3 => ManuallyDrop::drop(&mut self.avx512),
+                #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
+                1 => ManuallyDrop::drop(&mut self.neon),
+                2 => ManuallyDrop::drop(&mut self.sw),
+                _ => unreachable!(),
+            }
+        }
+    }
+}
+
+impl AES256GcmDynamic {
+    pub const KEY_LEN: usize = 32;
+    pub const BLOCK_LEN: usize = 16;
+    pub const NONCE_LEN: usize = 12;
+    pub const TAG_LEN: usize = 16;
+
+    pub fn new(key: [u8; Self::KEY_LEN]) -> Self {
+        unsafe {
+            match get_aes_gcm_idx() {
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                0 => AES256GcmDynamic {
+                    avx: ManuallyDrop::new(AES256GcmAVX::new(key)),
+                },
+                #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
+                0 => AES256GcmDynamic {
+                    hw: ManuallyDrop::new(AES256GcmHW::new(key)),
+                },
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                1 => AES256GcmDynamic {
+                    hw: ManuallyDrop::new(AES256GcmHW::new(key)),
+                },
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                4 => AES256GcmDynamic {
+                    avx2: ManuallyDrop::new(AES256GcmAVX2::new(key)),
+                },
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                #[cfg(avx512_feature)]
+                3 => AES256GcmDynamic {
+                    avx512: ManuallyDrop::new(AES256GcmAVX512::new(key)),
+                },
+                #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
+                1 => AES256GcmDynamic {
+                    neon: ManuallyDrop::new(AES256GcmNEON::new(key)),
+                },
+                2 => AES256GcmDynamic {
+                    sw: ManuallyDrop::new(AES256GcmSoft::new(key)),
+                },
+                _ => unreachable!(),
+            }
+        }
+    }
+
+    #[inline(always)]
+    pub fn from_slice(key: &[u8]) -> Self {
+        assert_eq!(key.len(), Self::KEY_LEN);
+        let key = unsafe { crate::utils::slice_to_array(key).clone() };
+        Self::new(key)
+    }
+
+    #[inline(never)]
+    pub fn encrypt_slice(&self, nonce: &[u8; NONCE_LEN], aad: &[u8], aead_pkt: &mut [u8]) {
+        unsafe {
+            match get_aes_gcm_idx() {
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                0 => self.avx.encrypt_slice(nonce, aad, aead_pkt),
+                #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
+                0 => self.hw.encrypt_slice(nonce, aad, aead_pkt),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                1 => self.hw.encrypt_slice(nonce, aad, aead_pkt),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                #[cfg(avx512_feature)]
+                3 => self.avx512.encrypt_slice(nonce, aad, aead_pkt),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                4 => self.avx2.encrypt_slice(nonce, aad, aead_pkt),
+                #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
+                1 => self.neon.encrypt_slice(nonce, aad, aead_pkt),
+                2 => self.sw.encrypt_slice(nonce, aad, aead_pkt),
+                _ => unreachable!(),
+            }
+        }
+    }
+
+    #[inline(never)]
+    pub fn decrypt_slice(&self, nonce: &[u8; NONCE_LEN], aad: &[u8], aead_pkt: &mut [u8]) -> bool {
+        unsafe {
+            match get_aes_gcm_idx() {
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                0 => self.avx.decrypt_slice(nonce, aad, aead_pkt),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                #[cfg(avx512_feature)]
+                3 => self.avx512.decrypt_slice(nonce, aad, aead_pkt),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                4 => self.avx2.decrypt_slice(nonce, aad, aead_pkt),
+                #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
+                0 => self.hw.decrypt_slice(nonce, aad, aead_pkt),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                1 => self.hw.decrypt_slice(nonce, aad, aead_pkt),
+                #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
+                1 => self.neon.decrypt_slice(nonce, aad, aead_pkt),
+                2 => self.sw.decrypt_slice(nonce, aad, aead_pkt),
+                _ => unreachable!(),
+            }
+        }
+    }
+
+    #[inline(never)]
+    pub fn encrypt_slice_oop(
+        &self,
+        nonce: &[u8; 12],
+        aad: &[u8],
+        plaintext_in: &[u8],
+        ciphertext_and_tag_out: &mut [u8],
+    ) {
+        unsafe {
+            match get_aes_gcm_idx() {
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                0 => self.avx.encrypt_slice_oop(nonce, aad, plaintext_in, ciphertext_and_tag_out),
+                #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
+                0 => self.hw.encrypt_slice_oop(nonce, aad, plaintext_in, ciphertext_and_tag_out),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                1 => self.hw.encrypt_slice_oop(nonce, aad, plaintext_in, ciphertext_and_tag_out),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                #[cfg(avx512_feature)]
+                3 => self.avx512.encrypt_slice_oop(nonce, aad, plaintext_in, ciphertext_and_tag_out),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                4 => self.avx2.encrypt_slice_oop(nonce, aad, plaintext_in, ciphertext_and_tag_out),
+                #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
+                1 => self.neon.encrypt_slice_oop(nonce, aad, plaintext_in, ciphertext_and_tag_out),
+                2 => self.sw.encrypt_slice_oop(nonce, aad, plaintext_in, ciphertext_and_tag_out),
+                _ => unreachable!(),
+            }
+        }
+    }
+
+    #[inline(never)]
+    pub fn encrypt_slice_detached_oop(
+        &self,
+        nonce: &[u8; 12],
+        aad: &[u8],
+        plaintext_in: &[u8],
+        ciphertext_out: &mut [u8],
+        tag_out: &mut [u8; Self::TAG_LEN],
+    ) {
+        unsafe {
+            match get_aes_gcm_idx() {
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                0 => self.avx.encrypt_slice_detached_oop(nonce, aad, plaintext_in, ciphertext_out, tag_out),
+                #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
+                0 => self.hw.encrypt_slice_detached_oop(nonce, aad, plaintext_in, ciphertext_out, tag_out),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                1 => self.hw.encrypt_slice_detached_oop(nonce, aad, plaintext_in, ciphertext_out, tag_out),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                #[cfg(avx512_feature)]
+                3 => self.avx512.encrypt_slice_detached_oop(nonce, aad, plaintext_in, ciphertext_out, tag_out),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                4 => self.avx2.encrypt_slice_detached_oop(nonce, aad, plaintext_in, ciphertext_out, tag_out),
+                #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
+                1 => self.neon.encrypt_slice_detached_oop(nonce, aad, plaintext_in, ciphertext_out, tag_out),
+                2 => self.sw.encrypt_slice_detached_oop(nonce, aad, plaintext_in, ciphertext_out, tag_out),
+                _ => unreachable!(),
+            }
+        }
+    }
+
+    #[inline(never)]
+    pub fn encrypt_slice_detached(
+        &self,
+        nonce: &[u8; NONCE_LEN],
+        aad: &[u8],
+        plaintext_in_ciphertext_out: &mut [u8],
+        tag_out: &mut [u8; 16],
+    ) {
+        unsafe {
+            match get_aes_gcm_idx() {
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                0 => self.avx.encrypt_slice_detached(nonce, aad, plaintext_in_ciphertext_out, tag_out),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                #[cfg(avx512_feature)]
+                3 => self.avx512.encrypt_slice_detached(nonce, aad, plaintext_in_ciphertext_out, tag_out),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                4 => self.avx2.encrypt_slice_detached(nonce, aad, plaintext_in_ciphertext_out, tag_out),
+                #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
+                0 => self.hw.encrypt_slice_detached(nonce, aad, plaintext_in_ciphertext_out, tag_out),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                1 => self.hw.encrypt_slice_detached(nonce, aad, plaintext_in_ciphertext_out, tag_out),
+                #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
+                1 => self.neon.encrypt_slice_detached(nonce, aad, plaintext_in_ciphertext_out, tag_out),
+                2 => self.sw.encrypt_slice_detached(nonce, aad, plaintext_in_ciphertext_out, tag_out),
+                _ => unreachable!(),
+            }
+        }
+    }
+
+    #[inline(never)]
+    pub fn decrypt_slice_detached(
+        &self,
+        nonce: &[u8; NONCE_LEN],
+        aad: &[u8],
+        ciphertext_in_plaintext_out: &mut [u8],
+        tag_in: &[u8; 16],
+    ) -> bool {
+        unsafe {
+            match get_aes_gcm_idx() {
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                0 => self.avx.decrypt_slice_detached(nonce, aad, ciphertext_in_plaintext_out, tag_in),
+                #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
+                0 => self.hw.decrypt_slice_detached(nonce, aad, ciphertext_in_plaintext_out, tag_in),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                1 => self.hw.decrypt_slice_detached(nonce, aad, ciphertext_in_plaintext_out, tag_in),
+                #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
+                1 => self.neon.decrypt_slice_detached(nonce, aad, ciphertext_in_plaintext_out, tag_in),
+                2 => self.sw.decrypt_slice_detached(nonce, aad, ciphertext_in_plaintext_out, tag_in),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                #[cfg(avx512_feature)]
+                3 => self.avx512.decrypt_slice_detached(nonce, aad, ciphertext_in_plaintext_out, tag_in),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                4 => self.avx2.decrypt_slice_detached(nonce, aad, ciphertext_in_plaintext_out, tag_in),
+                _ => unreachable!(),
+            }
+        }
+    }
+}
+
+impl Drop for AES256GcmDynamic {
+    #[inline]
+    fn drop(&mut self) {
+        unsafe {
+            match get_aes_gcm_idx() {
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 0 => ManuallyDrop::drop(&mut self.avx),
                 #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
@@ -1258,12 +1552,9 @@ impl Drop for AES128GcmDynamic {
 mod tests {
     use super::*;
 
-    macro_rules! test_aes128_gcm_impl {
-        ($cipher_type:ty) => {{
-        let key = [
-            0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf,
-            0x4f, 0x3c,
-        ];
+    macro_rules! test_gcm_impl {
+        ($cipher_type:ty, $key:expr, $ring_alg:expr) => {{
+        let key = $key;
         let cipher = <$cipher_type>::from_slice(&key);
         let nonce = [0x00; NONCE_LEN];
 
@@ -1272,15 +1563,14 @@ mod tests {
         let text = plaintext.to_vec();
         let mut ciphertext = text.repeat(1000);
         let ciphertext_orig = ciphertext.clone();
-        // use detatched mode
         let mut tag = [0u8; 16];
         cipher.encrypt_slice_detached(&nonce, aad, &mut ciphertext, &mut tag);
 
-        let mut ciphertext_ring = ciphertext_orig.clone();
-        let key = ring::aead::LessSafeKey::new(ring::aead::UnboundKey::new(&ring::aead::AES_128_GCM, &key).unwrap());
+        let ring_key = ring::aead::LessSafeKey::new(ring::aead::UnboundKey::new($ring_alg, &key).unwrap());
         let nonce_ring = ring::aead::Nonce::try_assume_unique_for_key(&nonce).unwrap();
         let aad_ring = ring::aead::Aad::from(aad);
-        let ret = key.seal_in_place_separate_tag(nonce_ring, aad_ring, &mut ciphertext_ring);
+        let mut ciphertext_ring = ciphertext_orig.clone();
+        let ret = ring_key.seal_in_place_separate_tag(nonce_ring, aad_ring, &mut ciphertext_ring);
         assert_eq!(&ciphertext, &ciphertext_ring, "cipher_type: {} ciphertext mismatch", std::any::type_name::<$cipher_type>());
         assert_eq!(tag, ret.unwrap().as_ref(), "cipher_type: {} tag mismatch", std::any::type_name::<$cipher_type>());
 
@@ -1297,7 +1587,7 @@ mod tests {
 
             let mut ciphertext_ring = data.clone();
             let nonce_ring = ring::aead::Nonce::try_assume_unique_for_key(&nonce).unwrap();
-            let tag_ring = key.seal_in_place_separate_tag(nonce_ring, aad_ring, &mut ciphertext_ring);
+            let tag_ring = ring_key.seal_in_place_separate_tag(nonce_ring, aad_ring, &mut ciphertext_ring);
             assert_eq!(&ciphertext, &ciphertext_ring, "cipher_type: {} ciphertext mismatch for random data", std::any::type_name::<$cipher_type>());
             assert_eq!(tag, tag_ring.unwrap().as_ref(), "cipher_type: {} tag mismatch for random data", std::any::type_name::<$cipher_type>());
 
@@ -1305,7 +1595,33 @@ mod tests {
             assert!(ret, "cipher_type: {} decrypt_slice_detached failed for random data", std::any::type_name::<$cipher_type>());
             assert_eq!(&data, &ciphertext[..], "cipher_type: {} plaintext mismatch after decrypt for random data", std::any::type_name::<$cipher_type>());
         }
+        }};
+    }
 
+    macro_rules! test_aes128_gcm_impl {
+        ($cipher_type:ty) => {{
+        test_gcm_impl!(
+            $cipher_type,
+            [
+                0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf,
+                0x4f, 0x3c,
+            ],
+            &ring::aead::AES_128_GCM
+        );
+        }};
+    }
+
+    macro_rules! test_aes256_gcm_impl {
+        ($cipher_type:ty) => {{
+        test_gcm_impl!(
+            $cipher_type,
+            [
+                0x60, 0x3d, 0xeb, 0x10, 0x15, 0xca, 0x71, 0xbe, 0x2b, 0x73, 0xae, 0xf0, 0x85, 0x7d,
+                0x77, 0x81, 0x1f, 0x35, 0x2c, 0x07, 0x3b, 0x61, 0x08, 0xd7, 0x2d, 0x98, 0x10, 0xa3,
+                0x09, 0x14, 0xdf, 0xf4,
+            ],
+            &ring::aead::AES_256_GCM
+        );
         }};
     }
 
@@ -1338,5 +1654,40 @@ mod tests {
             test_aes128_gcm_impl!(AES128GcmHW);
         }
         test_aes128_gcm_impl!(AES128GcmDynamic);
+    }
+
+    #[test]
+    fn test_aes256_gcm() {
+        test_aes256_gcm_impl!(AES256GcmSoft);
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        if crate::is_hw_feature_detected!("sse2", "ssse3", "aes", "pclmulqdq") {
+            test_aes256_gcm_impl!(AES256GcmSSE);
+        }
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        if crate::is_hw_feature_detected!("avx", "aes", "pclmulqdq") {
+            test_aes256_gcm_impl!(AES256GcmAVX);
+        }
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        if crate::is_hw_feature_detected!("avx2", "aes", "pclmulqdq", "bmi1", "bmi2", "movbe") {
+            test_aes256_gcm_impl!(AES256GcmAVX2);
+        }
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        #[cfg(avx512_feature)]
+        if crate::is_hw_feature_detected!("avx512f", "avx512vl", "avx512bw", "vaes", "vpclmulqdq") {
+            test_aes256_gcm_impl!(AES256GcmAVX512);
+        }
+        #[cfg(target_arch = "aarch64")]
+        if crate::is_hw_feature_detected!("aes", "neon") {
+            test_aes256_gcm_impl!(AES256GcmHW);
+        }
+        #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
+        if crate::is_hw_feature_detected!("neon") {
+            test_aes256_gcm_impl!(AES256GcmNEON);
+        }
+        #[cfg(target_arch = "arm")]
+        if crate::is_hw_feature_detected!("aes", "neon") {
+            test_aes256_gcm_impl!(AES256GcmHW);
+        }
+        test_aes256_gcm_impl!(AES256GcmDynamic);
     }
 }

@@ -175,6 +175,7 @@ unsafe fn bswap_128(a: uint8x16_t) -> uint8x16_t {
     }
 }
 
+#[allow(unused_imports)]
 pub(crate) use clmul;
 
 #[derive(Clone, Copy)]
