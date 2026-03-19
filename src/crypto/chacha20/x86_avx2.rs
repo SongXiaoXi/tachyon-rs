@@ -124,31 +124,22 @@ impl $name {
             #[crate::loop_unroll(block, 0, 4)]
             fn loop_unroll() {
                 let block = &res[block];
-                let block00 = _mm_loadu_si128(data.as_ptr().add(start + 0) as _);
-                let block01 = _mm_loadu_si128(data.as_ptr().add(start + 16) as _);
-                let block02 = _mm_loadu_si128(data.as_ptr().add(start + 32) as _);
-                let block03 = _mm_loadu_si128(data.as_ptr().add(start + 48) as _);
+                let block_lo_0 = _mm256_permute2x128_si256(block[0], block[1], 0x20);
+                let block_lo_1 = _mm256_permute2x128_si256(block[2], block[3], 0x20);
+                let block_hi_0 = _mm256_permute2x128_si256(block[0], block[1], 0x31);
+                let block_hi_1 = _mm256_permute2x128_si256(block[2], block[3], 0x31);
 
-                _mm_storeu_si128(data.as_ptr().add(start + 0) as _, _mm_xor_si128(block00, _mm256_castsi256_si128(block[0])));
-                _mm_storeu_si128(data.as_ptr().add(start + 16) as _, _mm_xor_si128(block01, _mm256_castsi256_si128(block[1])));
-                _mm_storeu_si128(data.as_ptr().add(start + 32) as _, _mm_xor_si128(block02, _mm256_castsi256_si128(block[2])));
-                _mm_storeu_si128(data.as_ptr().add(start + 48) as _, _mm_xor_si128(block03, _mm256_castsi256_si128(block[3])));
-                start += Self::BLOCK_LEN;
-            }
+                let start_hi = start + Self::BLOCK_LEN * 4;
 
-                        
-            #[crate::loop_unroll(block, 0, 4)]
-            fn loop_unroll() {
-                let block = &res[block];
-                let block00 = _mm_loadu_si128(data.as_ptr().add(start + 0) as _);
-                let block01 = _mm_loadu_si128(data.as_ptr().add(start + 16) as _);
-                let block02 = _mm_loadu_si128(data.as_ptr().add(start + 32) as _);
-                let block03 = _mm_loadu_si128(data.as_ptr().add(start + 48) as _);
+                let data_lo_0 = _mm256_loadu_si256(data.as_ptr().add(start + 0) as _);
+                let data_lo_1 = _mm256_loadu_si256(data.as_ptr().add(start + 32) as _);
+                let data_hi_0 = _mm256_loadu_si256(data.as_ptr().add(start_hi + 0) as _);
+                let data_hi_1 = _mm256_loadu_si256(data.as_ptr().add(start_hi + 32) as _);
 
-                _mm_storeu_si128(data.as_ptr().add(start + 0) as _, _mm_xor_si128(block00, _mm256_extracti128_si256(block[0], 1)));
-                _mm_storeu_si128(data.as_ptr().add(start + 16) as _, _mm_xor_si128(block01, _mm256_extracti128_si256(block[1], 1)));
-                _mm_storeu_si128(data.as_ptr().add(start + 32) as _, _mm_xor_si128(block02, _mm256_extracti128_si256(block[2], 1)));
-                _mm_storeu_si128(data.as_ptr().add(start + 48) as _, _mm_xor_si128(block03, _mm256_extracti128_si256(block[3], 1)));
+                _mm256_storeu_si256(data.as_mut_ptr().add(start + 0) as _, _mm256_xor_si256(data_lo_0, block_lo_0));
+                _mm256_storeu_si256(data.as_mut_ptr().add(start + 32) as _, _mm256_xor_si256(data_lo_1, block_lo_1));
+                _mm256_storeu_si256(data.as_mut_ptr().add(start_hi + 0) as _, _mm256_xor_si256(data_hi_0, block_hi_0));
+                _mm256_storeu_si256(data.as_mut_ptr().add(start_hi + 32) as _, _mm256_xor_si256(data_hi_1, block_hi_1));
                 start += Self::BLOCK_LEN;
             }
         }
