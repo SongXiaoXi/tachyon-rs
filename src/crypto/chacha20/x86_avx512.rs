@@ -86,6 +86,104 @@ impl $name {
     }
 
     #[inline(always)]
+    pub(crate) fn op_16blocks(&self, init_block_counter: u32, nonce: &[u8; $nonce_len], data: &mut [u8; 1024]) {
+        debug_assert_eq!(nonce.len(), Self::NONCE_LEN);
+
+        let mut initial_state = self.initial_state;
+        // Counter (32-bits, little-endian)
+        initial_state[12] = init_block_counter;
+        // Nonce (96-bits, little-endian)
+        initial_state[13] = u32::from_le_bytes([nonce[0], nonce[1], nonce[2], nonce[3]]);
+        initial_state[14] = u32::from_le_bytes([nonce[4], nonce[5], nonce[6], nonce[7]]);
+        initial_state[15] = u32::from_le_bytes([nonce[8], nonce[9], nonce[10], nonce[11]]);
+
+        let mut start = 0;
+
+        unsafe {
+            let mut state = [
+                _mm512_set1_epi32(initial_state[0] as _),
+                _mm512_set1_epi32(initial_state[1] as _),
+                _mm512_set1_epi32(initial_state[2] as _),
+                _mm512_set1_epi32(initial_state[3] as _),
+                _mm512_set1_epi32(initial_state[4] as _),
+                _mm512_set1_epi32(initial_state[5] as _),
+                _mm512_set1_epi32(initial_state[6] as _),
+                _mm512_set1_epi32(initial_state[7] as _),
+                _mm512_set1_epi32(initial_state[8] as _),
+                _mm512_set1_epi32(initial_state[9] as _),
+                _mm512_set1_epi32(initial_state[10] as _),
+                _mm512_set1_epi32(initial_state[11] as _),
+                _mm512_set1_epi32(initial_state[12] as _),
+                _mm512_set1_epi32(initial_state[13] as _),
+                _mm512_set1_epi32(initial_state[14] as _),
+                _mm512_set1_epi32(initial_state[15] as _),
+            ];
+            state[12] = _mm512_add_epi32(state[12], _mm512_set_epi32(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0));
+            let res = rounds_vertical_avx512(&state);
+
+            #[crate::loop_unroll(block, 0, 4)]
+            fn loop_unroll() {
+                let block = &res[block];
+                let block00 = _mm_loadu_si128(data.as_ptr().add(start + 0) as _);
+                let block01 = _mm_loadu_si128(data.as_ptr().add(start + 16) as _);
+                let block02 = _mm_loadu_si128(data.as_ptr().add(start + 32) as _);
+                let block03 = _mm_loadu_si128(data.as_ptr().add(start + 48) as _);
+
+                _mm_storeu_si128(data.as_ptr().add(start + 0) as _, _mm_xor_si128(block00, _mm512_castsi512_si128(block[0])));
+                _mm_storeu_si128(data.as_ptr().add(start + 16) as _, _mm_xor_si128(block01, _mm512_castsi512_si128(block[1])));
+                _mm_storeu_si128(data.as_ptr().add(start + 32) as _, _mm_xor_si128(block02, _mm512_castsi512_si128(block[2])));
+                _mm_storeu_si128(data.as_ptr().add(start + 48) as _, _mm_xor_si128(block03, _mm512_castsi512_si128(block[3])));
+                start += Self::BLOCK_LEN;
+            }
+                        
+            #[crate::loop_unroll(block, 0, 4)]
+            fn loop_unroll() {
+                let block = &res[block];
+                let block00 = _mm_loadu_si128(data.as_ptr().add(start + 0) as _);
+                let block01 = _mm_loadu_si128(data.as_ptr().add(start + 16) as _);
+                let block02 = _mm_loadu_si128(data.as_ptr().add(start + 32) as _);
+                let block03 = _mm_loadu_si128(data.as_ptr().add(start + 48) as _);
+
+                _mm_storeu_si128(data.as_ptr().add(start + 0) as _, _mm_xor_si128(block00, _mm512_extracti32x4_epi32(block[0], 1)));
+                _mm_storeu_si128(data.as_ptr().add(start + 16) as _, _mm_xor_si128(block01, _mm512_extracti32x4_epi32(block[1], 1)));
+                _mm_storeu_si128(data.as_ptr().add(start + 32) as _, _mm_xor_si128(block02, _mm512_extracti32x4_epi32(block[2], 1)));
+                _mm_storeu_si128(data.as_ptr().add(start + 48) as _, _mm_xor_si128(block03, _mm512_extracti32x4_epi32(block[3], 1)));
+                start += Self::BLOCK_LEN;
+            }
+
+            #[crate::loop_unroll(block, 0, 4)]
+            fn loop_unroll() {
+                let block = &res[block];
+                let block00 = _mm_loadu_si128(data.as_ptr().add(start + 0) as _);
+                let block01 = _mm_loadu_si128(data.as_ptr().add(start + 16) as _);
+                let block02 = _mm_loadu_si128(data.as_ptr().add(start + 32) as _);
+                let block03 = _mm_loadu_si128(data.as_ptr().add(start + 48) as _);
+
+                _mm_storeu_si128(data.as_ptr().add(start + 0) as _, _mm_xor_si128(block00, _mm512_extracti32x4_epi32(block[0], 2)));
+                _mm_storeu_si128(data.as_ptr().add(start + 16) as _, _mm_xor_si128(block01, _mm512_extracti32x4_epi32(block[1], 2)));
+                _mm_storeu_si128(data.as_ptr().add(start + 32) as _, _mm_xor_si128(block02, _mm512_extracti32x4_epi32(block[2], 2)));
+                _mm_storeu_si128(data.as_ptr().add(start + 48) as _, _mm_xor_si128(block03, _mm512_extracti32x4_epi32(block[3], 2)));
+                start += Self::BLOCK_LEN;
+            }
+            #[crate::loop_unroll(block, 0, 4)]
+            fn loop_unroll() {
+                let block = &res[block];
+                let block00 = _mm_loadu_si128(data.as_ptr().add(start + 0) as _);
+                let block01 = _mm_loadu_si128(data.as_ptr().add(start + 16) as _);
+                let block02 = _mm_loadu_si128(data.as_ptr().add(start + 32) as _);
+                let block03 = _mm_loadu_si128(data.as_ptr().add(start + 48) as _);
+
+                _mm_storeu_si128(data.as_ptr().add(start + 0) as _, _mm_xor_si128(block00, _mm512_extracti32x4_epi32(block[0], 3)));
+                _mm_storeu_si128(data.as_ptr().add(start + 16) as _, _mm_xor_si128(block01, _mm512_extracti32x4_epi32(block[1], 3)));
+                _mm_storeu_si128(data.as_ptr().add(start + 32) as _, _mm_xor_si128(block02, _mm512_extracti32x4_epi32(block[2], 3)));
+                _mm_storeu_si128(data.as_ptr().add(start + 48) as _, _mm_xor_si128(block03, _mm512_extracti32x4_epi32(block[3], 3)));
+                start += Self::BLOCK_LEN;
+            }
+        }
+        _ = start;
+    }
+
+    #[inline(always)]
     pub(crate) fn op_8blocks(&self, init_block_counter: u32, nonce: &[u8; $nonce_len], data: &mut [u8; 512]) {
         debug_assert_eq!(nonce.len(), Self::NONCE_LEN);
 
@@ -124,22 +222,31 @@ impl $name {
             #[crate::loop_unroll(block, 0, 4)]
             fn loop_unroll() {
                 let block = &res[block];
-                let block_lo_0 = _mm256_permute2x128_si256(block[0], block[1], 0x20);
-                let block_lo_1 = _mm256_permute2x128_si256(block[2], block[3], 0x20);
-                let block_hi_0 = _mm256_permute2x128_si256(block[0], block[1], 0x31);
-                let block_hi_1 = _mm256_permute2x128_si256(block[2], block[3], 0x31);
+                let block00 = _mm_loadu_si128(data.as_ptr().add(start + 0) as _);
+                let block01 = _mm_loadu_si128(data.as_ptr().add(start + 16) as _);
+                let block02 = _mm_loadu_si128(data.as_ptr().add(start + 32) as _);
+                let block03 = _mm_loadu_si128(data.as_ptr().add(start + 48) as _);
 
-                let start_hi = start + Self::BLOCK_LEN * 4;
+                _mm_storeu_si128(data.as_ptr().add(start + 0) as _, _mm_xor_si128(block00, _mm256_castsi256_si128(block[0])));
+                _mm_storeu_si128(data.as_ptr().add(start + 16) as _, _mm_xor_si128(block01, _mm256_castsi256_si128(block[1])));
+                _mm_storeu_si128(data.as_ptr().add(start + 32) as _, _mm_xor_si128(block02, _mm256_castsi256_si128(block[2])));
+                _mm_storeu_si128(data.as_ptr().add(start + 48) as _, _mm_xor_si128(block03, _mm256_castsi256_si128(block[3])));
+                start += Self::BLOCK_LEN;
+            }
 
-                let data_lo_0 = _mm256_loadu_si256(data.as_ptr().add(start + 0) as _);
-                let data_lo_1 = _mm256_loadu_si256(data.as_ptr().add(start + 32) as _);
-                let data_hi_0 = _mm256_loadu_si256(data.as_ptr().add(start_hi + 0) as _);
-                let data_hi_1 = _mm256_loadu_si256(data.as_ptr().add(start_hi + 32) as _);
+                        
+            #[crate::loop_unroll(block, 0, 4)]
+            fn loop_unroll() {
+                let block = &res[block];
+                let block00 = _mm_loadu_si128(data.as_ptr().add(start + 0) as _);
+                let block01 = _mm_loadu_si128(data.as_ptr().add(start + 16) as _);
+                let block02 = _mm_loadu_si128(data.as_ptr().add(start + 32) as _);
+                let block03 = _mm_loadu_si128(data.as_ptr().add(start + 48) as _);
 
-                _mm256_storeu_si256(data.as_mut_ptr().add(start + 0) as _, _mm256_xor_si256(data_lo_0, block_lo_0));
-                _mm256_storeu_si256(data.as_mut_ptr().add(start + 32) as _, _mm256_xor_si256(data_lo_1, block_lo_1));
-                _mm256_storeu_si256(data.as_mut_ptr().add(start_hi + 0) as _, _mm256_xor_si256(data_hi_0, block_hi_0));
-                _mm256_storeu_si256(data.as_mut_ptr().add(start_hi + 32) as _, _mm256_xor_si256(data_hi_1, block_hi_1));
+                _mm_storeu_si128(data.as_ptr().add(start + 0) as _, _mm_xor_si128(block00, _mm256_extracti128_si256(block[0], 1)));
+                _mm_storeu_si128(data.as_ptr().add(start + 16) as _, _mm_xor_si128(block01, _mm256_extracti128_si256(block[1], 1)));
+                _mm_storeu_si128(data.as_ptr().add(start + 32) as _, _mm_xor_si128(block02, _mm256_extracti128_si256(block[2], 1)));
+                _mm_storeu_si128(data.as_ptr().add(start + 48) as _, _mm_xor_si128(block03, _mm256_extracti128_si256(block[3], 1)));
                 start += Self::BLOCK_LEN;
             }
         }
@@ -209,19 +316,42 @@ impl $name {
     fn op(&self, init_block_counter: u32, nonce: &[u8; $nonce_len], plaintext_or_ciphertext: &mut [u8]) {
         debug_assert_eq!(nonce.len(), Self::NONCE_LEN);
 
+        let mut start = 0;
+        let mut len_remain = plaintext_or_ciphertext.len();
+        let mut block_counter = init_block_counter;
+
+        if len_remain >= Self::BLOCK_LEN * PARALLEL_BLOCKS * 4 {
+            type Blocks = [u8; <$name>::BLOCK_LEN * PARALLEL_BLOCKS * 4];
+            while len_remain >= Self::BLOCK_LEN * PARALLEL_BLOCKS * 4 {
+                let blocks: &mut Blocks = unsafe { crate::utils::slice_to_array_at_mut(plaintext_or_ciphertext, start) };
+                self.op_16blocks(block_counter, nonce, blocks);
+                block_counter += (PARALLEL_BLOCKS * 4) as u32;
+                start += Self::BLOCK_LEN * PARALLEL_BLOCKS * 4;
+                len_remain -= Self::BLOCK_LEN * PARALLEL_BLOCKS * 4;
+            }
+        }
+
+        if len_remain >= Self::BLOCK_LEN * PARALLEL_BLOCKS * 2 {
+            type Blocks = [u8; <$name>::BLOCK_LEN * PARALLEL_BLOCKS * 2];
+            while len_remain >= Self::BLOCK_LEN * PARALLEL_BLOCKS * 2 {
+                let blocks: &mut Blocks = unsafe { crate::utils::slice_to_array_at_mut(plaintext_or_ciphertext, start) };
+                self.op_8blocks(block_counter, nonce, blocks);
+                block_counter += (PARALLEL_BLOCKS * 2) as u32;
+                start += Self::BLOCK_LEN * PARALLEL_BLOCKS * 2;
+                len_remain -= Self::BLOCK_LEN * PARALLEL_BLOCKS * 2;
+            }
+        }
+
         let mut initial_state = self.initial_state;
         // Counter (32-bits, little-endian)
-        initial_state[12] = init_block_counter;
+        initial_state[12] = block_counter;
         // Nonce (96-bits, little-endian)
         initial_state[13] = u32::from_le_bytes([nonce[0], nonce[1], nonce[2], nonce[3]]);
         initial_state[14] = u32::from_le_bytes([nonce[4], nonce[5], nonce[6], nonce[7]]);
         initial_state[15] = u32::from_le_bytes([nonce[8], nonce[9], nonce[10], nonce[11]]);
-       
-
-        let mut start = 0;
-        let mut len_remain = plaintext_or_ciphertext.len();
 
         if len_remain >= Self::BLOCK_LEN * PARALLEL_BLOCKS {
+            let start_4blocks = start;
             unsafe {
                 let mut state = [
                     _mm_set1_epi32(initial_state[0] as _),
@@ -263,7 +393,7 @@ impl $name {
 
                     len_remain -= Self::BLOCK_LEN * 4;
                 }
-                initial_state[12] += (start / Self::BLOCK_LEN) as u32;
+                initial_state[12] += ((start - start_4blocks) / Self::BLOCK_LEN) as u32;
             }
         }
 
@@ -316,9 +446,7 @@ impl $name {
     }
 }
 
-impl_chacha20_for_target!(Chacha20AVX2, 32, 64, 12, 4, "avx2");
-#[cfg(avx512_feature)]
-impl_chacha20_for_target!(Chacha20AVX512VL, 32, 64, 12, 4, "avx512vl");
+impl_chacha20_for_target!(Chacha20AVX512, 32, 64, 12, 4, "avx512f,avx512dq");
 
 type Chacha20Soft = super::soft::Chacha20Soft;
 
@@ -326,65 +454,46 @@ use super::soft::diagonal_rounds;
 use super::soft::add_si512;
 use super::soft::v512_i8_xor;
 
-macro_rules! rotate_left_256 {
-    // ($v:expr, 8) => {
-    //     // #[cfg(target_feature = "ssse3")]
-    //     // {
-    //         // $v = _mm_shuffle_epi8($v, _mm_set_epi8(14, 13, 12, 15, 10, 9, 8, 11, 6, 5, 4, 7, 2, 1, 0, 3));
-    //     // }
-    //     // #[cfg(not(target_feature = "ssse3"))]
-    //     // {
-    //         $v = _mm_xor_si128(_mm_slli_epi32($v, 8), _mm_srli_epi32($v, 32 - 8));
-    //     // }
-    // };
-    // ($v:expr, 16) => {
-    //     // #[cfg(target_feature = "ssse3")]
-    //     // {
-    //         // $v = _mm_shuffle_epi8($v, _mm_set_epi8(13, 12, 15, 14, 9, 8, 11, 10, 5, 4, 7, 6, 1, 0, 3, 2));
-    //     // }
-    //     // #[cfg(not(target_feature = "ssse3"))]
-    //     // {
-    //         $v = _mm_xor_si128(_mm_slli_epi32($v, 16), _mm_srli_epi32($v, 32 - 16));
-    //     // }
-    // };
+macro_rules! rotate_left_512 {
     ($v:expr, $r:literal) => {
-        $v = _mm256_xor_si256(_mm256_slli_epi32($v, $r), _mm256_srli_epi32($v, 32 - $r));
+        $v = _mm512_rol_epi32($v, $r);
     };
 }
 
 use super::x86::rounds_vertical as rounds_vertical;
+use super::x86_avx2::rounds_vertical_avx2 as rounds_vertical_avx2;
 
 
 #[inline(always)]
-pub(crate) unsafe fn rounds_vertical_avx2(v: &[__m256i; 16]) -> [[__m256i; 4]; PARALLEL_BLOCKS] {
+unsafe fn rounds_vertical_avx512(v: &[__m512i; 16]) -> [[__m512i; 4]; PARALLEL_BLOCKS] {
     let mut res = *v;
 
     #[inline(always)]
-    unsafe fn quarter_round_avx2(state_04: &mut __m256i, state_48: &mut __m256i, state_8c: &mut __m256i, state_c0: &mut __m256i) {
-        *state_04 = _mm256_add_epi32(*state_04, *state_48);
-        *state_c0 = _mm256_xor_si256(*state_c0, *state_04);
-        rotate_left_256!(*state_c0, 16);
+    unsafe fn quarter_round_avx512(state_04: &mut __m512i, state_48: &mut __m512i, state_8c: &mut __m512i, state_c0: &mut __m512i) {
+        *state_04 = _mm512_add_epi32(*state_04, *state_48);
+        *state_c0 = _mm512_xor_si512(*state_c0, *state_04);
+        rotate_left_512!(*state_c0, 16);
 
-        *state_8c = _mm256_add_epi32(*state_8c, *state_c0);
-        *state_48 = _mm256_xor_si256(*state_48, *state_8c);
-        rotate_left_256!(*state_48, 12);
+        *state_8c = _mm512_add_epi32(*state_8c, *state_c0);
+        *state_48 = _mm512_xor_si512(*state_48, *state_8c);
+        rotate_left_512!(*state_48, 12);
 
-        *state_04 = _mm256_add_epi32(*state_04, *state_48);
-        *state_c0 = _mm256_xor_si256(*state_c0, *state_04);
-        rotate_left_256!(*state_c0, 8);
+        *state_04 = _mm512_add_epi32(*state_04, *state_48);
+        *state_c0 = _mm512_xor_si512(*state_c0, *state_04);
+        rotate_left_512!(*state_c0, 8);
 
-        *state_8c = _mm256_add_epi32(*state_8c, *state_c0);
-        *state_48 = _mm256_xor_si256(*state_48, *state_8c);
-        rotate_left_256!(*state_48, 7);
+        *state_8c = _mm512_add_epi32(*state_8c, *state_c0);
+        *state_48 = _mm512_xor_si512(*state_48, *state_8c);
+        rotate_left_512!(*state_48, 7);
     }
 
     #[inline(always)]
-    unsafe fn quarter_round_avx2_idx(state: &mut [__m256i; 16], a: usize, b: usize, c: usize, d: usize) {
+    unsafe fn quarter_round_avx512_idx(state: &mut [__m512i; 16], a: usize, b: usize, c: usize, d: usize) {
         let mut sa = state[a];
         let mut sb = state[b];
         let mut sc = state[c];
         let mut sd = state[d];
-        quarter_round_avx2(&mut sa, &mut sb, &mut sc, &mut sd);
+        quarter_round_avx512(&mut sa, &mut sb, &mut sc, &mut sd);
         state[a] = sa;
         state[b] = sb;
         state[c] = sc;
@@ -392,29 +501,29 @@ pub(crate) unsafe fn rounds_vertical_avx2(v: &[__m256i; 16]) -> [[__m256i; 4]; P
     }
 
     #[inline(always)]
-    unsafe fn double_quarter_round_avx2(v: &mut [__m256i; 16]) {
-        quarter_round_avx2_idx(v, 0, 4, 8, 12);
-        quarter_round_avx2_idx(v, 1, 5, 9, 13);
-        quarter_round_avx2_idx(v, 2, 6, 10, 14);
-        quarter_round_avx2_idx(v, 3, 7, 11, 15);
-        quarter_round_avx2_idx(v, 0, 5, 10, 15);
-        quarter_round_avx2_idx(v, 1, 6, 11, 12);
-        quarter_round_avx2_idx(v, 2, 7, 8, 13);
-        quarter_round_avx2_idx(v, 3, 4, 9, 14);
+    unsafe fn double_quarter_round_avx512(v: &mut [__m512i; 16]) {
+        quarter_round_avx512_idx(v, 0, 4, 8, 12);
+        quarter_round_avx512_idx(v, 1, 5, 9, 13);
+        quarter_round_avx512_idx(v, 2, 6, 10, 14);
+        quarter_round_avx512_idx(v, 3, 7, 11, 15);
+        quarter_round_avx512_idx(v, 0, 5, 10, 15);
+        quarter_round_avx512_idx(v, 1, 6, 11, 12);
+        quarter_round_avx512_idx(v, 2, 7, 8, 13);
+        quarter_round_avx512_idx(v, 3, 4, 9, 14);
     }
 
     #[crate::loop_unroll(_, 0, 10)]
     fn loop_unroll() {
-        double_quarter_round_avx2(&mut res);
+        double_quarter_round_avx512(&mut res);
     }
 
     #[crate::loop_unroll(i, 0, 16)]
     fn loop_unroll() {
-        res[i] = _mm256_add_epi32(res[i], v[i]);
+        res[i] = _mm512_add_epi32(res[i], v[i]);
     }
 
     #[inline(always)]
-    unsafe fn interleave4x8(v: [__m256i; 16]) -> [[__m256i; 4]; 4] {
+    unsafe fn interleave4x16(v: [__m512i; 16]) -> [[__m512i; 4]; 4] {
         let mut res = [[v[0]; 4]; 4];
         #[crate::loop_unroll(i, 0, 4)]
         fn loop_unroll() {
@@ -422,21 +531,21 @@ pub(crate) unsafe fn rounds_vertical_avx2(v: &[__m256i; 16]) -> [[__m256i; 4]; P
             let b = v[i * 4 + 1];
             let c = v[i * 4 + 2];
             let d = v[i * 4 + 3];
-            let tmp0 = _mm256_unpacklo_epi32(a, b);
-            let tmp1 = _mm256_unpackhi_epi32(a, b);
-            let tmp2 = _mm256_unpacklo_epi32(c, d);
-            let tmp3 = _mm256_unpackhi_epi32(c, d);
+            let tmp0 = _mm512_unpacklo_epi32(a, b);
+            let tmp1 = _mm512_unpackhi_epi32(a, b);
+            let tmp2 = _mm512_unpacklo_epi32(c, d);
+            let tmp3 = _mm512_unpackhi_epi32(c, d);
 
-            res[0][i] = _mm256_unpacklo_epi64(tmp0, tmp2);
-            res[1][i] = _mm256_unpackhi_epi64(tmp0, tmp2);
-            res[2][i] = _mm256_unpacklo_epi64(tmp1, tmp3);
-            res[3][i] = _mm256_unpackhi_epi64(tmp1, tmp3);
+            res[0][i] = _mm512_unpacklo_epi64(tmp0, tmp2);
+            res[1][i] = _mm512_unpackhi_epi64(tmp0, tmp2);
+            res[2][i] = _mm512_unpacklo_epi64(tmp1, tmp3);
+            res[3][i] = _mm512_unpackhi_epi64(tmp1, tmp3);
         }
 
         res
     }
 
-    interleave4x8(res)
+    interleave4x16(res)
 }
 
 #[cfg(test)]
@@ -445,12 +554,9 @@ mod tests {
 
     #[test]
     fn test_chacha20() {
-        if crate::is_hw_feature_detected!("avx2") {
-            chacha20_test_case!(Chacha20AVX2);
-        }
-        #[cfg(nightly_feature)]
-        if crate::is_hw_feature_detected!("avx512vl") {
-            chacha20_test_case!(Chacha20AVX512VL);
+        #[cfg(avx512_feature)]
+        if crate::is_hw_feature_detected!("avx512f") && crate::is_hw_feature_detected!("avx512dq") {
+            chacha20_test_case!(Chacha20AVX512);
         }
     }
 }

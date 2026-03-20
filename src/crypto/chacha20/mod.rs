@@ -4,6 +4,9 @@ pub mod soft;
 pub mod x86;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub mod x86_avx2;
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(avx512_feature)]
+pub mod x86_avx512;
 
 pub(crate) const PARALLEL_BLOCKS: usize = 4;
 
@@ -14,6 +17,12 @@ pub(crate) use x86::Chacha20SSE;
 pub(crate) use x86::Chacha20AVX;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub(crate) use x86_avx2::Chacha20AVX2;
+#[cfg(avx512_feature)]
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+pub(crate) use x86_avx2::Chacha20AVX512VL;
+#[cfg(avx512_feature)]
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+pub(crate) use x86_avx512::Chacha20AVX512;
 #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
 pub(crate) use soft::Chacha20Neon;
 
