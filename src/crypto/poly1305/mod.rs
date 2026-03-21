@@ -1,5 +1,9 @@
 use crate::utils::IntTraits;
 
+#[cfg(avx512_feature)]
+#[cfg(any(target_arch = "x86_64"))]
+pub mod x86_avx512;
+
 #[derive(Clone)]
 pub struct Poly1305 {
     r: [u64; 2],
