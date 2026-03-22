@@ -96,7 +96,47 @@ impl $name {
 
         use crate::crypto::chacha20;
 
-        
+        $(
+        _ = $avx512;
+        if len_remain >= Self::BLOCK_LEN * chacha20::PARALLEL_BLOCKS * 4 {
+                            
+            type Blocks = [u8; <$chacha20>::BLOCK_LEN * chacha20::PARALLEL_BLOCKS * 4];
+            // SAFETY: We know that the slice is at least BLOCK_LEN * PARALLEL_BLOCKS * 2 long
+            let blocks: &mut Blocks = unsafe { crate::utils::slice_to_array_at_mut(plaintext_in_ciphertext_out, start) };
+            // SAFETY: We know that the slice lifetime is valid
+            let mut blocks: &mut Blocks = unsafe { core::mem::transmute(blocks) };
+
+            self.chacha20.op_16blocks(chacha_counter, &nonce, blocks);
+            chacha_counter += chacha20::PARALLEL_BLOCKS as u32 * 4;
+            start += Self::BLOCK_LEN * chacha20::PARALLEL_BLOCKS * 4;
+            len_remain -= Self::BLOCK_LEN * chacha20::PARALLEL_BLOCKS * 4;
+
+
+            while len_remain >= Self::BLOCK_LEN * chacha20::PARALLEL_BLOCKS * 4 {
+                let new_blocks: &mut Blocks = unsafe { crate::utils::slice_to_array_at_mut(plaintext_in_ciphertext_out, start) };
+                let new_blocks: &mut Blocks = unsafe { core::mem::transmute(new_blocks) };
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                { unsafe {
+                    #[cfg(target_arch = "x86_64")]
+                    use core::arch::x86_64::*;
+                    #[cfg(target_arch = "x86")]
+                    use core::arch::x86::*;
+                    let ptr = plaintext_in_ciphertext_out.as_ptr().add(start).add(Self::BLOCK_LEN * chacha20::PARALLEL_BLOCKS * 4);                    crate::const_loop!(i, 0, 17, {
+                        _mm_prefetch(ptr.add(i * 64) as _, _MM_HINT_T0);
+                    });
+                }}
+                let poly_blocks_ptr = blocks.as_ptr() as *const [u8; Self::BLOCK_LEN * chacha20::PARALLEL_BLOCKS];
+                self.chacha20.op_16blocks(chacha_counter, &nonce, new_blocks);
+                unsafe { <$poly1305>::update_64_blocks(&mut poly1305, &*(poly_blocks_ptr as *const [u8; 1024])) };
+                blocks = new_blocks;
+                chacha_counter += chacha20::PARALLEL_BLOCKS as u32 * 4;
+                start += Self::BLOCK_LEN * chacha20::PARALLEL_BLOCKS * 4;
+                len_remain -= Self::BLOCK_LEN * chacha20::PARALLEL_BLOCKS * 4;
+            }
+            let poly_blocks_ptr = blocks.as_ptr() as *const [u8; Self::BLOCK_LEN * chacha20::PARALLEL_BLOCKS];
+            unsafe { <$poly1305>::update_64_blocks(&mut poly1305, &*(poly_blocks_ptr as *const [u8; 1024])) };
+        }
+        )?
 
         $(
             _ = $avx2;
@@ -117,8 +157,19 @@ impl $name {
                 while len_remain >= Self::BLOCK_LEN * chacha20::PARALLEL_BLOCKS * 2 {
                     let new_blocks: &mut Blocks = unsafe { crate::utils::slice_to_array_at_mut(plaintext_in_ciphertext_out, start) };
                     let new_blocks: &mut Blocks = unsafe { core::mem::transmute(new_blocks) };
-                    
-                    let poly_blocks_ptr = blocks.as_ptr() as *const [u8; Self::BLOCK_LEN * chacha20::PARALLEL_BLOCKS];
+                    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                    { unsafe {
+                        #[cfg(target_arch = "x86_64")]
+                        use core::arch::x86_64::*;
+                        #[cfg(target_arch = "x86")]
+                        use core::arch::x86::*;
+                        let ptr = plaintext_in_ciphertext_out.as_ptr().add(start).add(Self::BLOCK_LEN * chacha20::PARALLEL_BLOCKS * 2);
+                        // block size is 64 * 8
+                        crate::const_loop!(i, 0, 9, {
+                            _mm_prefetch(ptr.add(i * 64) as _, _MM_HINT_T0);
+                        });
+                    }}
+                    let poly_blocks_ptr = blocks.as_ptr() as *const _;
                     poly1305.update_16_blocks(&*poly_blocks_ptr);
                     poly1305.update_16_blocks(&*poly_blocks_ptr.add(1));
                     self.chacha20.op_8blocks(chacha_counter, &nonce, new_blocks);
@@ -127,7 +178,7 @@ impl $name {
                     start += Self::BLOCK_LEN * chacha20::PARALLEL_BLOCKS * 2;
                     len_remain -= Self::BLOCK_LEN * chacha20::PARALLEL_BLOCKS * 2;
                 }
-                let poly_blocks_ptr = blocks.as_ptr() as *const [u8; Self::BLOCK_LEN * chacha20::PARALLEL_BLOCKS];
+                let poly_blocks_ptr = blocks.as_ptr() as *const _;
                 poly1305.update_16_blocks(&*poly_blocks_ptr);
                 poly1305.update_16_blocks(&*poly_blocks_ptr.add(1));
             }
@@ -150,6 +201,18 @@ impl $name {
                 () => {
                     let new_blocks: &mut Blocks = unsafe { crate::utils::slice_to_array_at_mut(plaintext_in_ciphertext_out, start) };
                     let new_blocks: &mut Blocks = unsafe { core::mem::transmute(new_blocks) };
+                    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                    { unsafe {
+                        #[cfg(target_arch = "x86_64")]
+                        use core::arch::x86_64::*;
+                        #[cfg(target_arch = "x86")]
+                        use core::arch::x86::*;
+                        let ptr = plaintext_in_ciphertext_out.as_ptr().add(start).add(Self::BLOCK_LEN * chacha20::PARALLEL_BLOCKS);
+                        // block size is 64 * 4
+                        crate::const_loop!(i, 0, 5, {
+                            _mm_prefetch(ptr.add(i * 64) as _, _MM_HINT_T0);
+                        });
+                    }}
                     poly1305.update_16_blocks(blocks);
                     self.chacha20.op_4blocks(chacha_counter, &nonce, new_blocks);
                     blocks = new_blocks;
@@ -256,15 +319,21 @@ cfg_if::cfg_if! {
     if #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] {
         impl_chacha20_for_target!(Chacha20Poly1305SSE, super::chacha20::Chacha20SSE, super::poly1305::Poly1305, 32, 64, 12, 16, "sse2");
         impl_chacha20_for_target!(Chacha20Poly1305AVX, super::chacha20::Chacha20AVX, super::poly1305::Poly1305, 32, 64, 12, 16, "avx");
-        impl_chacha20_for_target!(Chacha20Poly1305AVX2, "avx2", super::chacha20::Chacha20AVX2, super::poly1305::Poly1305, 32, 64, 12, 16, "avx2");
+        impl_chacha20_for_target!(Chacha20Poly1305AVX2, "avx2", super::chacha20::Chacha20AVX2, super::poly1305::Poly1305, 32, 64, 12, 16, "avx2,bmi1,bmi2,adx");
+        #[cfg(avx512_feature)]
+        impl_chacha20_for_target!(Chacha20Poly1305AVX512VL, "avx2", super::chacha20::Chacha20AVX512VL, super::poly1305::Poly1305, 32, 64, 12, 16, "avx512vl");
+        #[cfg(any(target_arch = "x86_64"))]
+        #[cfg(avx512_feature)]
+        impl_chacha20_for_target!(Chacha20Poly1305AVX512, "avx2", super::chacha20::Chacha20AVX512, "avx512", super::poly1305::x86_avx512::Poly1305, 32, 64, 12, 16, "avx512f,avx512dq,avx512ifma");
+
     } else if #[cfg(any(target_arch = "arm", target_arch = "aarch64"))] {
         impl_chacha20_for_target!(Chacha20Poly1305Neon, super::chacha20::Chacha20Neon, super::poly1305::Poly1305, 32, 64, 12, 16, "neon");
     }
 }
 
 cfg_if::cfg_if!{
-    if #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "avx"))] {
-        pub type Chacha20Poly1305 = Chacha20Poly1305AVX;
+    if #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "avx512f", target_feature = "avx512dq", target_feature = "avx512ifma"))] {
+        pub type Chacha20Poly1305 = Chacha20Poly1305AVX512;
     } else if #[cfg(all(any(target_arch = "aarch64", target_arch = "arm"), target_feature = "neon"))] {
         pub type Chacha20Poly1305 = Chacha20Poly1305Neon;
     } else {
@@ -280,6 +349,9 @@ pub union Chacha20Poly1305Dynamic {
     avx: Chacha20Poly1305AVX,
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     avx2: Chacha20Poly1305AVX2,
+    #[cfg(any(target_arch = "x86_64"))]
+    #[cfg(avx512_feature)]
+    avx512: Chacha20Poly1305AVX512,
     #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
     neon: Chacha20Poly1305Neon,
 }
@@ -314,19 +386,17 @@ impl Chacha20Poly1305Dynamic {
                 ) {
                     idx = 2;
                     if crate::is_hw_feature_detected!(
-                        "x86" => ("avx2"),
-                        "x86_64" => ("avx2"),
+                        "x86" => ("avx2", "bmi1", "bmi2", "adx"),
+                        "x86_64" => ("avx2", "bmi1", "bmi2", "adx"),
                     ) {
                         idx = 3;
-                        /*
-                        #[cfg(feature = "nightly")]
+                        #[cfg(avx512_feature)]
                         if crate::is_hw_feature_detected!(
-                            "x86" => ("avx512f","avx512dq"),
-                            "x86_64" => ("avx512f","avx512dq"),
+                            // "x86" => ("avx512f","avx512dq","avx512ifma"),
+                            "x86_64" => ("avx512f","avx512dq","avx512ifma"),
                         ) {
                             idx = 4;
                         }
-                        */
                     }
                 }
             } else {
@@ -343,6 +413,9 @@ impl Chacha20Poly1305Dynamic {
             2 => Chacha20Poly1305Dynamic { avx: Chacha20Poly1305AVX::new(key) },
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             3 => Chacha20Poly1305Dynamic { avx2: Chacha20Poly1305AVX2::new(key) },
+            #[cfg(any(target_arch = "x86_64"))]
+            #[cfg(avx512_feature)]
+            4 => Chacha20Poly1305Dynamic { avx512: Chacha20Poly1305AVX512::new(key) },
             #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
             1 => Chacha20Poly1305Dynamic { neon: Chacha20Poly1305Neon::new(key) },
             _ => unreachable!(),
@@ -370,6 +443,9 @@ impl Chacha20Poly1305Dynamic {
                 2 => self.avx.encrypt_slice(nonce, aad, aead_pkt),
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 3 => self.avx2.encrypt_slice(nonce, aad, aead_pkt),
+                #[cfg(any(target_arch = "x86_64"))]
+                #[cfg(avx512_feature)]
+                4 => self.avx512.encrypt_slice(nonce, aad, aead_pkt),
                 #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
                 1 => self.neon.encrypt_slice(nonce, aad, aead_pkt),
                 _ => unreachable!(),
@@ -392,6 +468,9 @@ impl Chacha20Poly1305Dynamic {
                 2 => self.avx.decrypt_slice(nonce, aad, aead_pkt),
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 3 => self.avx2.decrypt_slice(nonce, aad, aead_pkt),
+                #[cfg(any(target_arch = "x86_64"))]
+                #[cfg(avx512_feature)]
+                4 => self.avx512.decrypt_slice(nonce, aad, aead_pkt),
                 #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
                 1 => self.neon.decrypt_slice(nonce, aad, aead_pkt),
                 _ => unreachable!(),
@@ -415,6 +494,9 @@ impl Chacha20Poly1305Dynamic {
                 2 => self.avx.encrypt_slice_detached(nonce, aad, plaintext_in_ciphertext_out, tag_out),
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 3 => self.avx2.encrypt_slice_detached(nonce, aad, plaintext_in_ciphertext_out, tag_out),
+                #[cfg(any(target_arch = "x86_64"))]
+                #[cfg(avx512_feature)]
+                4 => self.avx512.encrypt_slice_detached(nonce, aad, plaintext_in_ciphertext_out, tag_out),
                 #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
                 1 => self.neon.encrypt_slice_detached(nonce, aad, plaintext_in_ciphertext_out, tag_out),
                 _ => unreachable!(),
@@ -438,6 +520,9 @@ impl Chacha20Poly1305Dynamic {
                 2 => self.avx.decrypt_slice_detached(nonce, aad, ciphertext_in_plaintext_out, tag_in),
                 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
                 3 => self.avx2.decrypt_slice_detached(nonce, aad, ciphertext_in_plaintext_out, tag_in),
+                #[cfg(any(target_arch = "x86_64"))]
+                #[cfg(avx512_feature)]
+                4 => self.avx512.decrypt_slice_detached(nonce, aad, ciphertext_in_plaintext_out, tag_in),
                 #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
                 1 => self.neon.decrypt_slice_detached(nonce, aad, ciphertext_in_plaintext_out, tag_in),
                 _ => unreachable!(),
@@ -529,8 +614,13 @@ mod tests {
         if crate::is_hw_feature_detected!("avx2") {
             test_chacha20_poly1305_impl!(Chacha20Poly1305AVX2);
         }
+        #[cfg(avx512_feature)]
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        if crate::is_hw_feature_detected!("avx512f", "avx512dq", "avx512ifma") {
+            test_chacha20_poly1305_impl!(Chacha20Poly1305AVX512);
+        }
         #[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
-        if cfg!(target_feature = "neon") {
+        if crate::is_hw_feature_detected!("neon") {
             test_chacha20_poly1305_impl!(Chacha20Poly1305Neon);
         }
         test_chacha20_poly1305_impl!(Chacha20Poly1305Dynamic);
