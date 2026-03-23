@@ -89,8 +89,8 @@ More examples can be found in the [bench](bench) directory.
 | Snapdragon 6Gen1 | **864.11 MiB/s** | N/A     | 759.92 MiB/s  | 654.70 MiB/s(3.4.1) |
 | BCM2711 (RPi4) | **308.49 MiB/s**   | N/A     | 214.92 MiB/s  | 266.62 MiB/s(3.6.1) |
 | i7-3770        | 1121.77 MiB/s   | N/A     | **1151.09 MiB/s**  | 1105.63 MiB/s(3.4.1) |
-| Ryzen 9 9950X | 4121.26 MiB/s   | N/A     | 3714.02 MiB/s  | **6900.42 MiB/s**(3.4.1) |
-| Ryzen Z1 Extreme | 4180.23 MiB/s   | N/A     | 3587.13 MiB/s  | **4388.11 MiB/s**(3.5.0) |
+| Ryzen 9 9950X | **7576.29 MiB/s**   | N/A     | 3714.02 MiB/s  | 6900.42 MiB/s(3.4.1) |
+| Ryzen Z1 Extreme | **4973.23 MiB/s**   | N/A     | 3587.13 MiB/s  | 4388.11 MiB/s(3.5.0) |
 
 ### BLAKE3 hashing of 64 KiB:
 
