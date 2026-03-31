@@ -119,8 +119,7 @@ impl Poly1305 {
                     mlen,
                 );
             }
-            padding_block[mlen] = 1;
-            self.block(&padding_block, 0);
+            self.block(&padding_block, HIBIT);
         }
     }
 
