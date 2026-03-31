@@ -142,6 +142,22 @@ macro_rules! gf_mul_reduce {
 
 macro_rules! x86_ghash_128_impl {
     ($($feature:literal)?) => {
+        #[derive(Clone)]
+        pub(crate) struct GHashStorage {
+            key: __m128i,
+            key2: __m128i,
+            key3: __m128i,
+            key4: __m128i,
+            key5: __m128i,
+            key6: __m128i,
+            fold_key: __m128i,
+            fold_key2: __m128i,
+            fold_key3: __m128i,
+            fold_key4: __m128i,
+            fold_key5: __m128i,
+            fold_key6: __m128i,
+        }
+
 #[derive(Clone, Copy)]
 pub struct GHash {
     buf: __m128i,
@@ -199,6 +215,43 @@ impl GHash {
             buf: tag,
             key2, key3, key4, key5, key6,
             fold_key, fold_key2, fold_key3, fold_key4, fold_key5, fold_key6
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn from_storage(storage: &GHashStorage) -> Self {
+        Self {
+            key: storage.key,
+            key2: storage.key2,
+            key3: storage.key3,
+            key4: storage.key4,
+            key5: storage.key5,
+            key6: storage.key6,
+            fold_key: storage.fold_key,
+            fold_key2: storage.fold_key2,
+            fold_key3: storage.fold_key3,
+            fold_key4: storage.fold_key4,
+            fold_key5: storage.fold_key5,
+            fold_key6: storage.fold_key6,
+            buf: _mm_setzero_si128(),
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn into_storage(self) -> GHashStorage {
+        GHashStorage {
+            key: self.key,
+            key2: self.key2,
+            key3: self.key3,
+            key4: self.key4,
+            key5: self.key5,
+            key6: self.key6,
+            fold_key: self.fold_key,
+            fold_key2: self.fold_key2,
+            fold_key3: self.fold_key3,
+            fold_key4: self.fold_key4,
+            fold_key5: self.fold_key5,
+            fold_key6: self.fold_key6,
         }
     }
 

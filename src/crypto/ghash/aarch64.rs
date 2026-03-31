@@ -95,6 +95,26 @@ unsafe fn gf_mul_to_tag(key: uint8x16_t, m: uint8x16_t, tag: &mut uint8x16_t) {
     *tag = res;
 }
 
+#[derive(Clone)]
+pub(crate) struct GHashStorage {
+    key: uint8x16_t,
+    key2: uint8x16_t,
+    key3: uint8x16_t,
+    key4: uint8x16_t,
+    #[cfg(ghash_block_x6)]
+    key5: uint8x16_t,
+    #[cfg(ghash_block_x6)]
+    key6: uint8x16_t,
+    key_k: uint8x8_t,
+    key_k2: uint8x8_t,
+    key_k3: uint8x8_t,
+    key_k4: uint8x8_t,
+    #[cfg(ghash_block_x6)]
+    key_k5: uint8x8_t,
+    #[cfg(ghash_block_x6)]
+    key_k6: uint8x8_t,
+}
+
 #[derive(Clone, Copy)]
 pub struct GHash {
     key: uint8x16_t,
@@ -114,6 +134,52 @@ pub struct GHash {
     key_k5: uint8x8_t,
     #[cfg(ghash_block_x6)]
     key_k6: uint8x8_t,
+}
+
+impl GHash {
+    #[inline(always)]
+    pub(crate) unsafe fn from_storage(storage: &GHashStorage) -> Self {
+        Self {
+            key: storage.key,
+            tag: vdupq_n_u8(0),
+            key2: storage.key2,
+            key3: storage.key3,
+            key4: storage.key4,
+            #[cfg(ghash_block_x6)]
+            key5: storage.key5,
+            #[cfg(ghash_block_x6)]
+            key6: storage.key6,
+            key_k: storage.key_k,
+            key_k2: storage.key_k2,
+            key_k3: storage.key_k3,
+            key_k4: storage.key_k4,
+            #[cfg(ghash_block_x6)]
+            key_k5: storage.key_k5,
+            #[cfg(ghash_block_x6)]
+            key_k6: storage.key_k6,
+        }
+    }
+
+    pub(crate) unsafe fn into_storage(self) -> GHashStorage {
+        GHashStorage {
+            key: self.key,
+            key2: self.key2,
+            key3: self.key3,
+            key4: self.key4,
+            #[cfg(ghash_block_x6)]
+            key5: self.key5,
+            #[cfg(ghash_block_x6)]
+            key6: self.key6,
+            key_k: self.key_k,
+            key_k2: self.key_k2,
+            key_k3: self.key_k3,
+            key_k4: self.key_k4,
+            #[cfg(ghash_block_x6)]
+            key_k5: self.key_k5,
+            #[cfg(ghash_block_x6)]
+            key_k6: self.key_k6,
+        }
+    }
 }
 
 #[unsafe_target_feature::unsafe_target_feature("neon,aes")]

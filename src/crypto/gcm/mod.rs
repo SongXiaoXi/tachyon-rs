@@ -26,11 +26,11 @@ impl AsRef<[u8; NONCE_LEN]> for Nonce {
 const GCM_BLOCK_LEN: usize = 16;
 
 macro_rules! impl_block_cipher_with_gcm_mode {
-    ($name:tt$(,$blocks_4x4:literal)?, $cipher:ty, $ghash:ty, $tlen:tt$(, $feature:literal)?) => {
+    ($name:tt$(,$blocks_4x4:literal)?, $cipher:ty, $ghash:ty, $ghashstorage:ty, $tlen:tt$(, $feature:literal)?) => {
         #[derive(Clone)]
         pub struct $name {
             cipher: $cipher,
-            ghash: $ghash,
+            ghash: $ghashstorage,
         }
 
         impl $name {
@@ -271,7 +271,7 @@ macro_rules! impl_block_cipher_with_gcm_mode {
 
                 let ghash = <$ghash>::new(&h);
 
-                Self { cipher, ghash }
+                Self { cipher, ghash: ghash.into_storage() }
             }
 
             #[inline]
@@ -288,7 +288,7 @@ macro_rules! impl_block_cipher_with_gcm_mode {
 
                 let ghash = <$ghash>::new(&h);
 
-                Self { cipher, ghash }
+                Self { cipher, ghash: ghash.into_storage() }
             }
 
             #[inline(always)]
@@ -394,7 +394,7 @@ macro_rules! impl_block_cipher_with_gcm_mode {
                 debug_assert!(plen <= Self::P_MAX);
                 debug_assert!(tlen == Self::TAG_LEN);
 
-                let mut mac = self.ghash.clone();
+                let mut mac = <$ghash>::from_storage(&self.ghash);
 
                 let mut counter = 1u32;
                 let mut counter_block = [0u8; Self::BLOCK_LEN];
@@ -740,7 +740,7 @@ macro_rules! impl_block_cipher_with_gcm_mode {
                 debug_assert!(clen <= Self::P_MAX);
                 debug_assert!(tlen == Self::TAG_LEN);
 
-                let mut mac = self.ghash.clone();
+                let mut mac = <$ghash>::from_storage(&self.ghash);
 
                 let mut counter = 1u32;
                 let mut counter_block = [0u8; Self::BLOCK_LEN];
@@ -920,50 +920,57 @@ macro_rules! impl_block_cipher_with_gcm_mode {
 use crate::crypto::aes::soft::AES128 as AES128Soft;
 use crate::crypto::aes::soft::AES256 as AES256Soft;
 use crate::crypto::ghash::soft::GHash as GHashSoft;
+use crate::crypto::ghash::soft::GHashStorage as GHashStorageSoft;
 
 #[allow(unused_imports)]
 use unsafe_target_feature::unsafe_target_feature;
-impl_block_cipher_with_gcm_mode!(AES128GcmSoft, AES128Soft, GHashSoft, 16);
-impl_block_cipher_with_gcm_mode!(AES256GcmSoft, AES256Soft, GHashSoft, 16);
+impl_block_cipher_with_gcm_mode!(AES128GcmSoft, AES128Soft, GHashSoft, GHashStorageSoft, 16);
+impl_block_cipher_with_gcm_mode!(AES256GcmSoft, AES256Soft, GHashSoft, GHashStorageSoft, 16);
 
 cfg_if::cfg_if!{
     if #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] {
         use crate::crypto::aes::x86::AES128Encryptor as AES128SSE;
         use crate::crypto::aes::x86::AES256 as AES256SSE;
         use crate::crypto::ghash::x86::GHash as GHashSSE;
-        impl_block_cipher_with_gcm_mode!(AES128GcmSSE, AES128SSE, GHashSSE, 16, "sse2,ssse3,aes,pclmulqdq");
-        impl_block_cipher_with_gcm_mode!(AES256GcmSSE, AES256SSE, GHashSSE, 16, "sse2,ssse3,aes,pclmulqdq");
+        use crate::crypto::ghash::x86::GHashStorage as GHashStorageSSE;
+        impl_block_cipher_with_gcm_mode!(AES128GcmSSE, AES128SSE, GHashSSE, GHashStorageSSE, 16, "sse2,ssse3,aes,pclmulqdq");
+        impl_block_cipher_with_gcm_mode!(AES256GcmSSE, AES256SSE, GHashSSE, GHashStorageSSE, 16, "sse2,ssse3,aes,pclmulqdq");
         type AES128GcmHW = AES128GcmSSE;
         type AES256GcmHW = AES256GcmSSE;
         use crate::crypto::aes::x86_avx::AES128Encryptor as AES128AVX;
         use crate::crypto::aes::x86_avx::AES256 as AES256AVX;
         use crate::crypto::ghash::x86_avx::GHash as GHashAVX;
-        impl_block_cipher_with_gcm_mode!(AES128GcmAVX, AES128AVX, GHashAVX, 16, "avx,aes,pclmulqdq");
-        impl_block_cipher_with_gcm_mode!(AES256GcmAVX, AES256AVX, GHashAVX, 16, "avx,aes,pclmulqdq");
+        use crate::crypto::ghash::x86_avx::GHashStorage as GHashStorageAVX;
+        impl_block_cipher_with_gcm_mode!(AES128GcmAVX, AES128AVX, GHashAVX, GHashStorageAVX, 16, "avx,aes,pclmulqdq");
+        impl_block_cipher_with_gcm_mode!(AES256GcmAVX, AES256AVX, GHashAVX, GHashStorageAVX, 16, "avx,aes,pclmulqdq");
         use crate::crypto::ghash::x86_avx2::GHash as GHashAVX2;
-        impl_block_cipher_with_gcm_mode!(AES128GcmAVX2, AES128AVX, GHashAVX2, 16, "avx2,aes,pclmulqdq,bmi1,bmi2,movbe");
-        impl_block_cipher_with_gcm_mode!(AES256GcmAVX2, AES256AVX, GHashAVX2, 16, "avx2,aes,pclmulqdq,bmi1,bmi2,movbe");
+        use crate::crypto::ghash::x86_avx2::GHashStorage as GHashStorageAVX2;
+        impl_block_cipher_with_gcm_mode!(AES128GcmAVX2, AES128AVX, GHashAVX2, GHashStorageAVX2, 16, "avx2,aes,pclmulqdq,bmi1,bmi2,movbe");
+        impl_block_cipher_with_gcm_mode!(AES256GcmAVX2, AES256AVX, GHashAVX2, GHashStorageAVX2, 16, "avx2,aes,pclmulqdq,bmi1,bmi2,movbe");
         #[cfg(avx512_feature)]
-        impl_block_cipher_with_gcm_mode!(AES128GcmAVX512, "avx512", crate::crypto::aes::x86_avx512::AES128Encryptor, crate::crypto::ghash::x86_avx512::GHash, 16, "avx512f,avx512bw,avx512vl,vpclmulqdq,vaes");
+        impl_block_cipher_with_gcm_mode!(AES128GcmAVX512, "avx512", crate::crypto::aes::x86_avx512::AES128Encryptor, crate::crypto::ghash::x86_avx512::GHash, crate::crypto::ghash::x86_avx512::GHashStorage, 16, "avx512f,avx512bw,avx512vl,vpclmulqdq,vaes");
         #[cfg(avx512_feature)]
-        impl_block_cipher_with_gcm_mode!(AES256GcmAVX512, "avx512", crate::crypto::aes::x86_avx512::AES256, crate::crypto::ghash::x86_avx512::GHash, 16, "avx512f,avx512bw,avx512vl,vpclmulqdq,vaes");
+        impl_block_cipher_with_gcm_mode!(AES256GcmAVX512, "avx512", crate::crypto::aes::x86_avx512::AES256, crate::crypto::ghash::x86_avx512::GHash, crate::crypto::ghash::x86_avx512::GHashStorage, 16, "avx512f,avx512bw,avx512vl,vpclmulqdq,vaes");
     } else if #[cfg(target_arch = "aarch64")] {
         use crate::crypto::aes::arm::AES128Encryptor as AES128Aarch64;
         use crate::crypto::aes::arm::AES256 as AES256Aarch64;
         use crate::crypto::ghash::aarch64::GHash as GHashAarch64;
-        impl_block_cipher_with_gcm_mode!(AES128GcmHW, AES128Aarch64, GHashAarch64, 16, "aes,neon");
-        impl_block_cipher_with_gcm_mode!(AES256GcmHW, AES256Aarch64, GHashAarch64, 16, "aes,neon");
+        use crate::crypto::ghash::aarch64::GHashStorage as GHashStorageAarch64;
+        impl_block_cipher_with_gcm_mode!(AES128GcmHW, AES128Aarch64, GHashAarch64, GHashStorageAarch64, 16, "aes,neon");
+        impl_block_cipher_with_gcm_mode!(AES256GcmHW, AES256Aarch64, GHashAarch64, GHashStorageAarch64, 16, "aes,neon");
         use crate::crypto::ghash::arm::GHash as GHashNEON;
-        impl_block_cipher_with_gcm_mode!(AES128GcmNEON, AES128Soft, GHashNEON, 16, "neon");
-        impl_block_cipher_with_gcm_mode!(AES256GcmNEON, AES256Soft, GHashNEON, 16, "neon");
+        use crate::crypto::ghash::arm::GHashStorage as GHashStorageNEON;
+        impl_block_cipher_with_gcm_mode!(AES128GcmNEON, AES128Soft, GHashNEON, GHashStorageNEON, 16, "neon");
+        impl_block_cipher_with_gcm_mode!(AES256GcmNEON, AES256Soft, GHashNEON, GHashStorageNEON, 16, "neon");
     } else if #[cfg(target_arch = "arm")] {
         use crate::crypto::aes::arm::AES128Encryptor as AES128Arm;
         use crate::crypto::aes::arm::AES256 as AES256Arm;
         use crate::crypto::ghash::arm::GHash as GHashNEON;
-        impl_block_cipher_with_gcm_mode!(AES128GcmHW, AES128Arm, GHashNEON, 16, "v8,aes,neon");
-        impl_block_cipher_with_gcm_mode!(AES256GcmHW, AES256Arm, GHashNEON, 16, "v8,aes,neon");
-        impl_block_cipher_with_gcm_mode!(AES128GcmNEON, AES128Soft, GHashNEON, 16, "v7,neon");
-        impl_block_cipher_with_gcm_mode!(AES256GcmNEON, AES256Soft, GHashNEON, 16, "v7,neon");
+        use crate::crypto::ghash::arm::GHashStorage as GHashStorageNEON;
+        impl_block_cipher_with_gcm_mode!(AES128GcmHW, AES128Arm, GHashNEON, GHashStorageNEON, 16, "v8,aes,neon");
+        impl_block_cipher_with_gcm_mode!(AES256GcmHW, AES256Arm, GHashNEON, GHashStorageNEON, 16, "v8,aes,neon");
+        impl_block_cipher_with_gcm_mode!(AES128GcmNEON, AES128Soft, GHashNEON, GHashStorageNEON, 16, "v7,neon");
+        impl_block_cipher_with_gcm_mode!(AES256GcmNEON, AES256Soft, GHashNEON, GHashStorageNEON, 16, "v7,neon");
     }
 }
 

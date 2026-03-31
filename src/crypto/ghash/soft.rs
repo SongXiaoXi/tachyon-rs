@@ -5,6 +5,12 @@ pub struct GHash {
     buf: [u8; Self::BLOCK_LEN],
 }
 
+#[derive(Clone)]
+pub(crate) struct GHashStorage {
+    hh: [u64; GHash::BLOCK_LEN],
+    hl: [u64; GHash::BLOCK_LEN],
+}
+
 impl GHash {
     pub const KEY_LEN: usize = 16;
     pub const BLOCK_LEN: usize = 16;
@@ -52,6 +58,23 @@ impl GHash {
         let buf = [0u8; 16];
 
         Self { hh, hl, buf }
+    }
+
+    #[inline(always)]
+    pub(crate) fn from_storage(storage: &GHashStorage) -> Self {
+        Self {
+            hh: storage.hh,
+            hl: storage.hl,
+            buf: [0u8; 16],
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn into_storage(self) -> GHashStorage {
+        GHashStorage {
+            hh: self.hh,
+            hl: self.hl,
+        }
     }
 
     // Multiplication operation in GF(2^128)

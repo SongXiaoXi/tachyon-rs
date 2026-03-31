@@ -13,6 +13,12 @@ pub struct GHash {
     fold_key: [__m128i; 16], // 16 - 1
 }
 
+#[derive(Clone)]
+pub(crate) struct GHashStorage {
+    key: [__m128i; 16], // 16 - 1
+    fold_key: [__m128i; 16], // 16 - 1
+}
+
 use super::x86::gf_mul_prepare_k;
 use super::x86::gf_mul_no_reduce;
 use super::x86::fold_key;
@@ -331,6 +337,21 @@ impl GHash {
                 fold_key8, fold_key7, fold_key6, fold_key5,
                 fold_key4, fold_key3, fold_key2, fold_key,
             ],
+        }
+    }
+
+    pub(crate) fn from_storage(storage: &GHashStorage) -> Self {
+        Self {
+            buf: _mm_setzero_si128(),
+            key: storage.key,
+            fold_key: storage.fold_key,
+        }
+    }
+
+    pub(crate) fn into_storage(self) -> GHashStorage {
+        GHashStorage {
+            key: self.key,
+            fold_key: self.fold_key,
         }
     }
 

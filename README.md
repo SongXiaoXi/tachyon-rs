@@ -68,11 +68,11 @@ More examples can be found in the [bench](bench) directory.
 
 | Platform      | tachyon-rs | ring(v0.17.14)  | OpenSSL |
 |---------------|------------|----------|-----------|
-| Apple M4      | **12108.03 MiB/s**    | 8751.87 MiB/s  | 11043.29 MiB/s(3.5.0) |
+| Apple M4      | **12212.39 MiB/s**    | 9253.01 MiB/s  | 11043.29 MiB/s(3.5.0) |
 | Apple M1      | **8410.86 MiB/s**    | 7122.30 MiB/s  | 8142.95 MiB/s(3.5.0) |
 | Apple A16     | **9224.50 MiB/s**    | 7813.08 MiB/s  | 7329.87 MiB/s(3.2.1) |
 | Apple A12z    | **4855.90 MiB/s**    | 4472.18 MiB/s  | 4477.18 MiB/s(3.2.1) |
-| Snapdragon 888 | **4663.68 MiB/s**   | 3950.03 MiB/s | 3972.17 MiB/s(3.4.1) |
+| Snapdragon 888 | **4759.15 MiB/s**   | 3950.03 MiB/s | 3972.17 MiB/s(3.4.1) |
 | Snapdragon 6Gen1 | **2449.88 MiB/s**   | 2280.68 MiB/s | 2176.36 MiB/s(3.4.1) |
 | BCM2711 (RPi4) | **56.42 MiB/s**    | 49.01 MiB/s  | 23.41 MiB/s(3.5.0) |
 | Ryzen 9 9950X | **33178.55 MiB/s**   | 15612.82 MiB/s | 33120.97 MiB/s(3.4.1) |
@@ -82,7 +82,7 @@ More examples can be found in the [bench](bench) directory.
 
 | Platform       | tachyon-rs      | tachyon-rs<br>(tune-cpu=generic) | ring(v0.17.14)  | OpenSSL |
 |----------------|-----------------|------------------------------|-----------------|---------|
-| Apple M4       | 1729.85 MiB/s   | **2821.64 MiB/s** | 2168.00 MiB/s  | 2355.95 MiB/s(3.5.0) |
+| Apple M4       | 1729.85 MiB/s   | **2855.17 MiB/s** | 2350.31 MiB/s  | 2355.95 MiB/s(3.5.0) |
 | Apple M1       | 1147.70 MiB/s   | **2047.47 MiB/s** | 1620.36 MiB/s  | 1816.42 MiB/s(3.5.0) |
 | Apple A16      | 1240.64 MiB/s   | **1967.34 MiB/s** | 1738.82 MiB/s  | 1932.54 MiB/s(3.2.1) |
 | Snapdragon 888 | **1445.22 MiB/s**   | N/A     | 1325.19 MiB/s | 1277.12 MiB/s(3.4.1) |
@@ -96,7 +96,7 @@ More examples can be found in the [bench](bench) directory.
 
 | Platform       | tachyon-rs | blake3(v1.8.2)  |
 |----------------|------------|-----------------|
-| Apple M4       | **3420.24 MiB/s** | 2572.41 MiB/s |
+| Apple M4       | **3458.86 MiB/s** | 2572.41 MiB/s |
 | Apple M1       | **2688.89 MiB/s** | 1840.18 MiB/s |
 | Apple A16      | **2891.19 MiB/s** | 1985.27 MiB/s |
 | Apple A12z     | **1624.33 MiB/s** | 1428.69 MiB/s |
