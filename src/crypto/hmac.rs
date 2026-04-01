@@ -266,6 +266,41 @@ cfg_if::cfg_if!{
     }
 }
 
+impl_hmac_with_hasher!(HmacSha512Soft, super::hash::sha512::soft::Sha512, 64);
+
+cfg_if::cfg_if!{
+    if #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] {
+        impl_hmac_with_hasher!(HmacSha512SSSE3, super::hash::sha512::x86_ssse3::Sha512, 64, "ssse3");
+        impl_hmac_with_hasher!(HmacSha512AVX, super::hash::sha512::x86_avx::Sha512, 64, "avx");
+        impl_hmac_with_hasher!(HmacSha512AVXBMI, super::hash::sha512::x86_avx_bmi::Sha512, 64, "bmi1,bmi2");
+    } else if #[cfg(target_arch = "aarch64")] {
+        impl_hmac_with_hasher!(HmacSha512NEON, super::hash::sha512::aarch64::Sha512, 64, "neon");
+        impl_hmac_with_hasher!(HmacSha512NIArm, super::hash::sha512::aarch64_ni::Sha512, 64, "neon,sha3");
+    }
+}
+
+cfg_if::cfg_if!{
+    if #[cfg(any(target_arch = "x86", target_arch = "x86_64"))] {
+        cfg_if::cfg_if! {
+            if #[cfg(all(target_feature = "ssse3", target_feature = "avx", target_feature = "bmi1", target_feature = "bmi2"))] {
+                pub type HmacSha512 = HmacSha512AVXBMI;
+            } else {
+                pub type HmacSha512 = HmacSha512Dynamic;
+            }
+        }
+    } else if #[cfg(target_arch = "aarch64")] {
+        cfg_if::cfg_if! {
+            if #[cfg(all(target_feature = "neon", target_feature = "sha3"))] {
+                pub type HmacSha512 = HmacSha512NIArm;
+            } else {
+                pub type HmacSha512 = HmacSha512Dynamic;
+            }
+        }
+    } else {
+        pub type HmacSha512 = HmacSha512Soft;
+    }
+}
+
 #[derive(Clone, Copy)]
 pub union HmacSha256Dynamic {
     soft: HmacSha256Soft,
@@ -413,5 +448,215 @@ impl HmacSha256Dynamic {
                 _ => unreachable!(),
             }
         }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub union HmacSha512Dynamic {
+    soft: HmacSha512Soft,
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    ssse3: HmacSha512SSSE3,
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    avx: HmacSha512AVX,
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    avx_bmi: HmacSha512AVXBMI,
+    #[cfg(target_arch = "aarch64")]
+    neon: HmacSha512NEON,
+    #[cfg(target_arch = "aarch64")]
+    ni_sha: HmacSha512NIArm,
+}
+
+// x86: 0 - soft, 1 - ssse3, 2 - avx, 3 - avx+bmi
+// aarch64: 0 - soft, 1 - neon, 2 - sha3
+static mut HMAC_SHA512_IDX: u32 = u32::MAX;
+
+#[inline(always)]
+unsafe fn init_hmac_sha512_idx() -> u32 {
+    if HMAC_SHA512_IDX == u32::MAX {
+        if crate::is_hw_feature_detected!(
+            "x86" => ("ssse3"),
+            "x86_64" => ("ssse3"),
+            "aarch64" => ("neon")
+        ) {
+            HMAC_SHA512_IDX = 1;
+            if crate::is_hw_feature_detected!(
+                "x86" => ("avx"),
+                "x86_64" => ("avx"),
+                "aarch64" => ("sha3"),
+            ) {
+                HMAC_SHA512_IDX = 2;
+                if crate::is_hw_feature_detected!(
+                    "x86" => ("bmi1", "bmi2"),
+                    "x86_64" => ("bmi1", "bmi2"),
+                ) {
+                    HMAC_SHA512_IDX = 3;
+                }
+            }
+        } else {
+            HMAC_SHA512_IDX = 0;
+        }
+    }
+    HMAC_SHA512_IDX
+}
+
+impl HmacSha512Dynamic {
+    pub const BLOCK_LEN: usize = 128;
+    pub const TAG_LEN: usize = 64;
+
+    #[inline(always)]
+    pub fn new(key: &[u8]) -> Self {
+        unsafe {
+            match init_hmac_sha512_idx() {
+                0 => Self { soft: HmacSha512Soft::new(key) },
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                1 => Self { ssse3: HmacSha512SSSE3::new(key) },
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                2 => Self { avx: HmacSha512AVX::new(key) },
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                3 => Self { avx_bmi: HmacSha512AVXBMI::new(key) },
+                #[cfg(target_arch = "aarch64")]
+                1 => Self { neon: HmacSha512NEON::new(key) },
+                #[cfg(target_arch = "aarch64")]
+                2 => Self { ni_sha: HmacSha512NIArm::new(key) },
+                _ => unreachable!(),
+            }
+        }
+    }
+
+    #[inline(always)]
+    pub fn update(&mut self, m: &[u8]) {
+        unsafe {
+            match HMAC_SHA512_IDX {
+                0 => self.soft.update(m),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                1 => self.ssse3.update(m),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                2 => self.avx.update(m),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                3 => self.avx_bmi.update(m),
+                #[cfg(target_arch = "aarch64")]
+                1 => self.neon.update(m),
+                #[cfg(target_arch = "aarch64")]
+                2 => self.ni_sha.update(m),
+                _ => unreachable!(),
+            }
+        }
+    }
+
+    #[inline(always)]
+    pub fn finalize(self) -> [u8; Self::TAG_LEN] {
+        unsafe {
+            match HMAC_SHA512_IDX {
+                0 => self.soft.finalize(),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                1 => self.ssse3.finalize(),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                2 => self.avx.finalize(),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                3 => self.avx_bmi.finalize(),
+                #[cfg(target_arch = "aarch64")]
+                1 => self.neon.finalize(),
+                #[cfg(target_arch = "aarch64")]
+                2 => self.ni_sha.finalize(),
+                _ => unreachable!(),
+            }
+        }
+    }
+
+    #[inline(always)]
+    pub fn oneshot(key: &[u8], m: &[u8]) -> [u8; Self::TAG_LEN] {
+        unsafe {
+            match init_hmac_sha512_idx() {
+                0 => HmacSha512Soft::oneshot(key, m),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                1 => HmacSha512SSSE3::oneshot(key, m),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                2 => HmacSha512AVX::oneshot(key, m),
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                3 => HmacSha512AVXBMI::oneshot(key, m),
+                #[cfg(target_arch = "aarch64")]
+                1 => HmacSha512NEON::oneshot(key, m),
+                #[cfg(target_arch = "aarch64")]
+                2 => HmacSha512NIArm::oneshot(key, m),
+                _ => unreachable!(),
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_hmac_sha256() {
+        let key = b"super secret key";
+        let data = b"Hello, world!";
+
+        let tag = HmacSha256::oneshot(key, data);
+
+        let ring_key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, key);
+        let ring_tag = ring::hmac::sign(&ring_key, data);
+
+        assert_eq!(tag.as_ref(), ring_tag.as_ref());
+    }
+
+    #[test]
+    fn test_hmac_sha512() {
+        let key = b"super secret key";
+        let data = b"Hello, world!";
+
+        let tag = HmacSha512::oneshot(key, data);
+
+        let ring_key = ring::hmac::Key::new(ring::hmac::HMAC_SHA512, key);
+        let ring_tag = ring::hmac::sign(&ring_key, data);
+
+        assert_eq!(tag.as_ref(), ring_tag.as_ref());
+    }
+
+    #[test]
+    fn test_hmac_sha512_long_key() {
+        let key = [0xaau8; 256];
+        let data = b"test with a long key exceeding block size";
+
+        let tag = HmacSha512::oneshot(&key, data);
+
+        let ring_key = ring::hmac::Key::new(ring::hmac::HMAC_SHA512, &key);
+        let ring_tag = ring::hmac::sign(&ring_key, data);
+
+        assert_eq!(tag.as_ref(), ring_tag.as_ref());
+    }
+
+    #[test]
+    fn test_hmac_sha512_incremental() {
+        let key = b"incremental hmac key";
+        let data1 = b"first part ";
+        let data2 = b"second part";
+
+        let mut hmac = HmacSha512::new(key);
+        hmac.update(data1);
+        hmac.update(data2);
+        let tag = hmac.finalize();
+
+        let mut full = Vec::new();
+        full.extend_from_slice(data1);
+        full.extend_from_slice(data2);
+        let ring_key = ring::hmac::Key::new(ring::hmac::HMAC_SHA512, key);
+        let ring_tag = ring::hmac::sign(&ring_key, &full);
+
+        assert_eq!(tag.as_ref(), ring_tag.as_ref());
+    }
+
+    #[test]
+    fn test_hmac_sha512_empty() {
+        let key = b"key";
+        let data = b"";
+
+        let tag = HmacSha512::oneshot(key, data);
+
+        let ring_key = ring::hmac::Key::new(ring::hmac::HMAC_SHA512, key);
+        let ring_tag = ring::hmac::sign(&ring_key, data);
+
+        assert_eq!(tag.as_ref(), ring_tag.as_ref());
     }
 }
