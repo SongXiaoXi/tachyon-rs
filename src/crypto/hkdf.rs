@@ -120,6 +120,8 @@ macro_rules! impl_hkdf_with_hmac {
 
 impl_hkdf_with_hmac!(HkdfSha1, HmacSha1);
 impl_hkdf_with_hmac!(HkdfMd5, super::hmac::HmacMd5);
+impl_hkdf_with_hmac!(HkdfSha256, super::hmac::HmacSha256);
+impl_hkdf_with_hmac!(HkdfSha512, super::hmac::HmacSha512);
 
 #[cfg(test)]
 mod tests {
@@ -144,5 +146,95 @@ mod tests {
             okm.fill(&mut okm_data).unwrap();
         }
         assert_eq!(okm, okm_data);
+    }
+
+    #[test]
+    fn test_hkdf_sha256() {
+        let salt = b"0000000000";
+        let ikm = b"1234567890";
+        let info = b"aaaaaaaaaaaa";
+
+        let mut okm = [0u8; 32];
+        HkdfSha256::oneshot(salt, ikm, info, &mut okm);
+
+        let mut okm_ring = [0u8; 32];
+        {
+            use ring::hkdf;
+            let salt = hkdf::Salt::new(hkdf::HKDF_SHA256, salt.as_ref());
+            let prk = salt.extract(ikm);
+            let binding = [info.as_ref()];
+            let okm = prk.expand(&binding, hkdf::HKDF_SHA256).unwrap();
+            okm.fill(&mut okm_ring).unwrap();
+        }
+        assert_eq!(okm, okm_ring);
+    }
+
+    #[test]
+    fn test_hkdf_sha512() {
+        let salt = b"0000000000";
+        let ikm = b"1234567890";
+        let info = b"aaaaaaaaaaaa";
+
+        let mut okm = [0u8; 64];
+        HkdfSha512::oneshot(salt, ikm, info, &mut okm);
+
+        let mut okm_ring = [0u8; 64];
+        {
+            use ring::hkdf;
+            let salt = hkdf::Salt::new(hkdf::HKDF_SHA512, salt.as_ref());
+            let prk = salt.extract(ikm);
+            let binding = [info.as_ref()];
+            let okm = prk.expand(&binding, hkdf::HKDF_SHA512).unwrap();
+            okm.fill(&mut okm_ring).unwrap();
+        }
+        assert_eq!(okm, okm_ring);
+    }
+
+    struct MyKeyType(usize);
+    impl ring::hkdf::KeyType for MyKeyType {
+        fn len(&self) -> usize {
+            self.0
+        }
+    }
+
+    #[test]
+    fn test_hkdf_sha512_multi_block() {
+        let salt = b"salt value here";
+        let ikm = b"input keying material";
+        let info = b"context info";
+
+        let mut okm = [0u8; 128];
+        HkdfSha512::oneshot(salt, ikm, info, &mut okm);
+
+        let mut okm_ring = [0u8; 128];
+        {
+            use ring::hkdf;
+            let salt = hkdf::Salt::new(hkdf::HKDF_SHA512, salt.as_ref());
+            let prk = salt.extract(ikm);
+            let binding = [info.as_ref()];
+            let okm = prk.expand(&binding, MyKeyType(128)).unwrap();
+            okm.fill(&mut okm_ring).unwrap();
+        }
+        assert_eq!(okm, okm_ring);
+    }
+
+    #[test]
+    fn test_hkdf_sha512_empty_salt() {
+        let ikm = b"input keying material";
+        let info = b"info";
+
+        let mut okm = [0u8; 64];
+        HkdfSha512::oneshot(b"", ikm, info, &mut okm);
+
+        let mut okm_ring = [0u8; 64];
+        {
+            use ring::hkdf;
+            let salt = hkdf::Salt::new(hkdf::HKDF_SHA512, &[0u8; 64]);
+            let prk = salt.extract(ikm);
+            let binding = [info.as_ref()];
+            let okm = prk.expand(&binding, hkdf::HKDF_SHA512).unwrap();
+            okm.fill(&mut okm_ring).unwrap();
+        }
+        assert_eq!(okm, okm_ring);
     }
 }
