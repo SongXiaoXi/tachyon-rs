@@ -38,12 +38,14 @@ rpath = false
 [features]
 default = []
 variable_time_eq = []
+hardware_bench = ["dep:instr_hex"]
 
 [dependencies]
 cfg-if = "1.0.0"
 unsafe_target_feature = "*"
 libc = "*"
 tachyon-macros = { path = "./macros" }
+instr_hex = { path = "./instr_hex", optional = true }
 
 [build-dependencies]
 rustc_version = "*"
